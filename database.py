@@ -41,6 +41,12 @@ def init_db():
                 user_id INTEGER PRIMARY KEY
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_settings (
+                user_id INTEGER PRIMARY KEY,
+                default_account TEXT NOT NULL DEFAULT 'cash'
+            )
+        """)
     _migrate()
 
 
@@ -52,6 +58,11 @@ def _migrate():
             # Existing rows all become 'expense' via the DEFAULT — no data loss,
             # no rows need to be touched manually.
             conn.execute("ALTER TABLE expenses ADD COLUMN type TEXT NOT NULL DEFAULT 'expense'")
+        if "account" not in cols:
+            # Existing rows default to 'cash' since we have no way to know the real
+            # account they belonged to. Users can correct these once transaction
+            # editing ships.
+            conn.execute("ALTER TABLE expenses ADD COLUMN account TEXT NOT NULL DEFAULT 'cash'")
 
 
 def register_user(user_id: int):
@@ -65,12 +76,50 @@ def get_all_users():
         return [r["user_id"] for r in rows]
 
 
-def add_expense(user_id: int, amount: float, category: str, note: str = "", type_: str = "expense"):
+def add_expense(user_id: int, amount: float, category: str, note: str = "", type_: str = "expense", account: str = "cash"):
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO expenses (user_id, amount, category, note, created_at, type) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, amount, category.lower(), note, datetime.utcnow().isoformat(), type_),
+            "INSERT INTO expenses (user_id, amount, category, note, created_at, type, account) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, amount, category.lower(), note, datetime.utcnow().isoformat(), type_, account),
         )
+
+
+def get_default_account(user_id: int) -> str:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT default_account FROM user_settings WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        return row["default_account"] if row else "cash"
+
+
+def set_default_account(user_id: int, account: str):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO user_settings (user_id, default_account) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET default_account = excluded.default_account",
+            (user_id, account),
+        )
+
+
+def account_balances(user_id: int):
+    """Returns {account: balance} across all time, income minus expense per account."""
+    with get_conn() as conn:
+        income_rows = conn.execute(
+            "SELECT account, SUM(amount) as total FROM expenses "
+            "WHERE user_id = ? AND type = 'income' GROUP BY account",
+            (user_id,),
+        ).fetchall()
+        expense_rows = conn.execute(
+            "SELECT account, SUM(amount) as total FROM expenses "
+            "WHERE user_id = ? AND type = 'expense' GROUP BY account",
+            (user_id,),
+        ).fetchall()
+        balances = {}
+        for r in income_rows:
+            balances[r["account"]] = balances.get(r["account"], 0) + r["total"]
+        for r in expense_rows:
+            balances[r["account"]] = balances.get(r["account"], 0) - r["total"]
+        return balances
 
 
 def get_budget(user_id: int, category: str):
@@ -104,13 +153,13 @@ def list_recent(user_id: int, limit: int = 10, type_: str = None):
     with get_conn() as conn:
         if type_:
             rows = conn.execute(
-                "SELECT id, amount, category, note, created_at, type FROM expenses "
+                "SELECT id, amount, category, note, created_at, type, account FROM expenses "
                 "WHERE user_id = ? AND type = ? ORDER BY id DESC LIMIT ?",
                 (user_id, type_, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, amount, category, note, created_at, type FROM expenses "
+                "SELECT id, amount, category, note, created_at, type, account FROM expenses "
                 "WHERE user_id = ? ORDER BY id DESC LIMIT ?",
                 (user_id, limit),
             ).fetchall()
