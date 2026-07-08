@@ -1,6 +1,6 @@
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time, timezone
 from functools import wraps
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -50,6 +50,7 @@ def require_subscription(handler):
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *a, **kw):
         user_id = update.effective_user.id
         if await is_subscribed(context, user_id):
+            db.register_user(user_id)
             return await handler(update, context, *a, **kw)
         await update.effective_message.reply_text(
             "🔒 This bot is free to use, but you need to subscribe to my channel first.\n\n"
@@ -107,8 +108,26 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     category = args[1]
     note = " ".join(args[2:]) if len(args) > 2 else ""
-    db.add_expense(update.effective_user.id, amount, category, note)
+    user_id = update.effective_user.id
+    db.add_expense(user_id, amount, category, note)
     await update.message.reply_text(f"✅ Logged {amount:.2f} under '{category}'" + (f" — {note}" if note else ""))
+
+    # Instant budget alert — this is the part a phone reminder can't do,
+    # since it has no idea what you've actually spent.
+    budget = db.get_budget(user_id, category)
+    if budget:
+        month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        spent = db.month_total_for_category(user_id, category, month_start)
+        pct = spent / budget * 100
+        if spent > budget:
+            await update.message.reply_text(
+                f"🚨 You're over budget on '{category}': {spent:.2f} / {budget:.2f}"
+            )
+        elif pct >= 80:
+            await update.message.reply_text(
+                f"⚠️ Heads up — you've used {pct:.0f}% of your '{category}' budget "
+                f"({spent:.2f} / {budget:.2f}) this month."
+            )
 
 
 @require_subscription
@@ -191,6 +210,27 @@ async def budgets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 
+async def send_weekly_recap(context: ContextTypes.DEFAULT_TYPE):
+    """Pushed automatically every Monday — no phone reminder does this,
+    since it needs your actual logged spending data to build it."""
+    since = datetime.utcnow() - timedelta(days=7)
+    for user_id in db.get_all_users():
+        if not await is_subscribed(context, user_id):
+            continue  # skip users who unsubscribed
+        rows, total = db.summary_since(user_id, since)
+        if not rows:
+            continue  # nothing to report, don't spam an empty recap
+        lines = [f"📊 *Your weekly recap:* {total:.2f} spent\n"]
+        for r in rows:
+            lines.append(f"• {r['category']}: {r['total']:.2f} ({r['cnt']}x)")
+        try:
+            await context.bot.send_message(
+                chat_id=user_id, text="\n".join(lines), parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            logger.warning(f"Couldn't send recap to {user_id}: {e}")
+
+
 def main():
     db.init_db()
     app = Application.builder().token(BOT_TOKEN).build()
@@ -204,6 +244,11 @@ def main():
     app.add_handler(CommandHandler("setbudget", setbudget))
     app.add_handler(CommandHandler("budgets", budgets))
     app.add_handler(CallbackQueryHandler(recheck_sub_callback, pattern="^recheck_sub$"))
+
+    # Auto-push a recap every Monday 9am UTC — the "phone reminders can't do this" feature
+    app.job_queue.run_daily(
+        send_weekly_recap, time=time(hour=9, tzinfo=timezone.utc), days=(0,)
+    )
 
     logger.info("Bot starting...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
