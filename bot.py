@@ -42,7 +42,25 @@ BTN_ADD_INCOME = "💵 Add Income"
 BTN_HISTORY = "📋 History"
 BTN_SUMMARY = "📊 Summary"
 BTN_BUDGETS = "💰 Budgets"
+BTN_ACCOUNTS = "🏦 Accounts"
 BTN_HELP = "❓ Help"
+
+ACCOUNTS = [
+    ("cash", "💵 Cash"),
+    ("bank", "🏦 Bank"),
+    ("card", "💳 Card"),
+    ("mobile_money", "📱 Mobile Money"),
+]
+ACCOUNT_LABELS = dict(ACCOUNTS)
+
+
+def account_keyboard(prefix: str):
+    buttons = [
+        InlineKeyboardButton(label, callback_data=f"{prefix}_{key}")
+        for key, label in ACCOUNTS
+    ]
+    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
+    return InlineKeyboardMarkup(rows)
 
 CATEGORIES = [
     ("food", "🍔 Food"),
@@ -69,14 +87,14 @@ def label_for(category_key: str, type_: str) -> str:
     return table.get(category_key, f"📦 {category_key}")
 
 
-ASK_AMOUNT, ASK_CATEGORY, ASK_NOTE = range(3)
-ASK_INCOME_AMOUNT, ASK_INCOME_CATEGORY, ASK_INCOME_NOTE = range(10, 13)
-BUDGET_CATEGORY, BUDGET_AMOUNT = range(3, 5)
+ASK_AMOUNT, ASK_CATEGORY, ASK_ACCOUNT, ASK_NOTE = range(4)
+ASK_INCOME_AMOUNT, ASK_INCOME_CATEGORY, ASK_INCOME_ACCOUNT, ASK_INCOME_NOTE = range(10, 14)
+BUDGET_CATEGORY, BUDGET_AMOUNT = range(20, 22)
 
 
 def main_menu_keyboard():
     return ReplyKeyboardMarkup(
-        [[BTN_ADD, BTN_ADD_INCOME], [BTN_HISTORY, BTN_SUMMARY], [BTN_BUDGETS, BTN_HELP]],
+        [[BTN_ADD, BTN_ADD_INCOME], [BTN_HISTORY, BTN_SUMMARY], [BTN_BUDGETS, BTN_ACCOUNTS], [BTN_HELP]],
         resize_keyboard=True,
     )
 
@@ -178,7 +196,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{BTN_ADD_INCOME} — log income in 3 taps\n"
         f"{BTN_HISTORY} — see your recent activity\n"
         f"{BTN_SUMMARY} — income, expenses & net balance\n"
-        f"{BTN_BUDGETS} — set spending limits & get warned\n\n"
+        f"{BTN_BUDGETS} — set spending limits & get warned\n"
+        f"{BTN_ACCOUNTS} — see balances across Cash/Bank/Card/Mobile Money\n\n"
         "I'll also message you automatically every Monday with a recap.",
         reply_markup=main_menu_keyboard(),
         parse_mode=ParseMode.MARKDOWN,
@@ -192,7 +211,8 @@ async def help_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"1️⃣ Tap {BTN_ADD} or {BTN_ADD_INCOME}\n"
         "2️⃣ Type the amount\n"
         "3️⃣ Tap a category button\n"
-        "4️⃣ Add a note, or skip it\n\n"
+        "4️⃣ Tap an account (Cash/Bank/Card/Mobile Money)\n"
+        "5️⃣ Add a note, or skip it\n\n"
         "That's it — it's saved. Use the other buttons any time to check your "
         "history, totals, or budgets.",
         reply_markup=main_menu_keyboard(),
@@ -239,6 +259,20 @@ async def add_category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.edit_message_text(f"Category: {CATEGORY_LABELS[category_key]}")
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
+        text="Which account?",
+        reply_markup=account_keyboard("addacc"),
+    )
+    return ASK_ACCOUNT
+
+
+async def add_account_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    account_key = query.data.split("_", 1)[1]
+    context.user_data["pending_account"] = account_key
+    await query.edit_message_text(f"Account: {ACCOUNT_LABELS[account_key]}")
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
         text="Want to add a quick note? Type it, or tap Skip.",
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("⏭️ Skip", callback_data="skip_note")]]
@@ -251,12 +285,14 @@ async def finalize_expense(update: Update, context: ContextTypes.DEFAULT_TYPE, n
     user_id = update.effective_user.id
     amount = context.user_data.pop("pending_amount")
     category_key = context.user_data.pop("pending_category")
-    db.add_expense(user_id, amount, category_key, note, type_=type_)
+    account_key = context.user_data.pop("pending_account", "cash")
+    db.add_expense(user_id, amount, category_key, note, type_=type_, account=account_key)
 
     label = label_for(category_key, type_)
+    account_label = ACCOUNT_LABELS.get(account_key, account_key)
     sign = "+" if type_ == "income" else ""
     icon = "💵" if type_ == "income" else "✅"
-    text = f"{icon} Logged {sign}{amount:.2f} — {label}" + (f"\n📝 {note}" if note else "")
+    text = f"{icon} Logged {sign}{amount:.2f} — {label} ({account_label})" + (f"\n📝 {note}" if note else "")
 
     if type_ == "expense":
         budget = db.get_budget(user_id, category_key)
@@ -324,6 +360,20 @@ async def add_income_category_chosen(update: Update, context: ContextTypes.DEFAU
     await query.edit_message_text(f"Category: {INCOME_CATEGORY_LABELS[category_key]}")
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
+        text="Which account?",
+        reply_markup=account_keyboard("incacc"),
+    )
+    return ASK_INCOME_ACCOUNT
+
+
+async def add_income_account_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    account_key = query.data.split("_", 1)[1]
+    context.user_data["pending_account"] = account_key
+    await query.edit_message_text(f"Account: {ACCOUNT_LABELS[account_key]}")
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
         text="Want to add a quick note? Type it, or tap Skip.",
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("⏭️ Skip", callback_data="skip_income_note")]]
@@ -367,10 +417,12 @@ async def history_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for r in rows:
         date = r["created_at"][:10]
         type_ = r["type"] if "type" in r.keys() else "expense"
+        account_key = r["account"] if "account" in r.keys() else "cash"
         label = label_for(r["category"], type_)
+        account_label = ACCOUNT_LABELS.get(account_key, account_key)
         sign = "+" if type_ == "income" else "-"
         note = f" — {r['note']}" if r["note"] else ""
-        text = f"{date}  {sign}{r['amount']:.2f}  {label}{note}"
+        text = f"{date}  {sign}{r['amount']:.2f}  {label} · {account_label}{note}"
         kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton("🗑️ Delete", callback_data=f"del_{r['id']}")]]
         )
@@ -431,6 +483,45 @@ async def summary_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append("No expenses in this period.")
 
     await query.edit_message_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+
+
+# ---------------------------------------------------------------------------
+# Accounts
+# ---------------------------------------------------------------------------
+@require_subscription
+async def accounts_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    balances = db.account_balances(user_id)
+    default_acc = db.get_default_account(user_id)
+    lines = ["🏦 *Account balances:*"]
+    for key, label in ACCOUNTS:
+        bal = balances.get(key, 0)
+        star = " ⭐" if key == default_acc else ""
+        lines.append(f"• {label}: {bal:+.2f}{star}")
+    lines.append("\n⭐ = your default account")
+    kb = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("⭐ Set default account", callback_data="set_default_account_start")]]
+    )
+    await update.message.reply_text("\n".join(lines), reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
+
+
+async def set_default_account_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("Pick your default account:")
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Choose one:",
+        reply_markup=account_keyboard("setdefacc"),
+    )
+
+
+async def set_default_account_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    account_key = query.data.split("_", 1)[1]
+    db.set_default_account(update.effective_user.id, account_key)
+    await query.edit_message_text(f"⭐ Default account set to {ACCOUNT_LABELS[account_key]}")
 
 
 # ---------------------------------------------------------------------------
@@ -541,12 +632,14 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(f"^{BTN_HISTORY}$"), history_view))
     app.add_handler(MessageHandler(filters.Regex(f"^{BTN_SUMMARY}$"), summary_view))
     app.add_handler(MessageHandler(filters.Regex(f"^{BTN_BUDGETS}$"), budgets_view))
+    app.add_handler(MessageHandler(filters.Regex(f"^{BTN_ACCOUNTS}$"), accounts_view))
 
     add_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex(f"^{BTN_ADD}$"), add_start)],
         states={
             ASK_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_amount_received)],
             ASK_CATEGORY: [CallbackQueryHandler(add_category_chosen, pattern="^addcat_")],
+            ASK_ACCOUNT: [CallbackQueryHandler(add_account_chosen, pattern="^addacc_")],
             ASK_NOTE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, add_note_received),
                 CallbackQueryHandler(add_note_skipped, pattern="^skip_note$"),
@@ -561,6 +654,7 @@ def main():
         states={
             ASK_INCOME_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_income_amount_received)],
             ASK_INCOME_CATEGORY: [CallbackQueryHandler(add_income_category_chosen, pattern="^inccat_")],
+            ASK_INCOME_ACCOUNT: [CallbackQueryHandler(add_income_account_chosen, pattern="^incacc_")],
             ASK_INCOME_NOTE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, add_income_note_received),
                 CallbackQueryHandler(add_income_note_skipped, pattern="^skip_income_note$"),
@@ -583,6 +677,8 @@ def main():
     app.add_handler(CallbackQueryHandler(recheck_sub_callback, pattern="^recheck_sub$"))
     app.add_handler(CallbackQueryHandler(delete_callback, pattern="^del_"))
     app.add_handler(CallbackQueryHandler(summary_callback, pattern="^sum_"))
+    app.add_handler(CallbackQueryHandler(set_default_account_start, pattern="^set_default_account_start$"))
+    app.add_handler(CallbackQueryHandler(set_default_account_callback, pattern="^setdefacc_"))
 
     app.job_queue.run_daily(
         send_weekly_recap, time=time(hour=9, tzinfo=timezone.utc), days=(0,)
