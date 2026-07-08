@@ -36,6 +36,22 @@ def init_db():
                 PRIMARY KEY (user_id, category)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY
+            )
+        """)
+
+
+def register_user(user_id: int):
+    with get_conn() as conn:
+        conn.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
+
+
+def get_all_users():
+    with get_conn() as conn:
+        rows = conn.execute("SELECT user_id FROM users").fetchall()
+        return [r["user_id"] for r in rows]
 
 
 def add_expense(user_id: int, amount: float, category: str, note: str = ""):
@@ -44,6 +60,25 @@ def add_expense(user_id: int, amount: float, category: str, note: str = ""):
             "INSERT INTO expenses (user_id, amount, category, note, created_at) VALUES (?, ?, ?, ?, ?)",
             (user_id, amount, category.lower(), note, datetime.utcnow().isoformat()),
         )
+
+
+def get_budget(user_id: int, category: str):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT amount FROM budgets WHERE user_id = ? AND category = ?",
+            (user_id, category.lower()),
+        ).fetchone()
+        return row["amount"] if row else None
+
+
+def month_total_for_category(user_id: int, category: str, since: datetime):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT SUM(amount) as total FROM expenses "
+            "WHERE user_id = ? AND category = ? AND created_at >= ?",
+            (user_id, category.lower(), since.isoformat()),
+        ).fetchone()
+        return row["total"] or 0
 
 
 def delete_expense(user_id: int, expense_id: int) -> bool:
