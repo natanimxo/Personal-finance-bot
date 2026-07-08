@@ -38,6 +38,7 @@ VALID_STATUSES = {"member", "administrator", "creator"}
 # Menu layout
 # ---------------------------------------------------------------------------
 BTN_ADD = "➕ Add Expense"
+BTN_ADD_INCOME = "💵 Add Income"
 BTN_HISTORY = "📋 History"
 BTN_SUMMARY = "📊 Summary"
 BTN_BUDGETS = "💰 Budgets"
@@ -53,13 +54,29 @@ CATEGORIES = [
 ]
 CATEGORY_LABELS = dict(CATEGORIES)
 
+INCOME_CATEGORIES = [
+    ("salary", "💼 Salary"),
+    ("freelance", "🧑‍💻 Freelance"),
+    ("business", "🏢 Business"),
+    ("gift", "🎁 Gift"),
+    ("other", "📦 Other"),
+]
+INCOME_CATEGORY_LABELS = dict(INCOME_CATEGORIES)
+
+
+def label_for(category_key: str, type_: str) -> str:
+    table = INCOME_CATEGORY_LABELS if type_ == "income" else CATEGORY_LABELS
+    return table.get(category_key, f"📦 {category_key}")
+
+
 ASK_AMOUNT, ASK_CATEGORY, ASK_NOTE = range(3)
+ASK_INCOME_AMOUNT, ASK_INCOME_CATEGORY, ASK_INCOME_NOTE = range(10, 13)
 BUDGET_CATEGORY, BUDGET_AMOUNT = range(3, 5)
 
 
 def main_menu_keyboard():
     return ReplyKeyboardMarkup(
-        [[BTN_ADD, BTN_HISTORY], [BTN_SUMMARY, BTN_BUDGETS], [BTN_HELP]],
+        [[BTN_ADD, BTN_ADD_INCOME], [BTN_HISTORY, BTN_SUMMARY], [BTN_BUDGETS, BTN_HELP]],
         resize_keyboard=True,
     )
 
@@ -68,6 +85,15 @@ def category_keyboard(prefix: str):
     buttons = [
         InlineKeyboardButton(label, callback_data=f"{prefix}_{key}")
         for key, label in CATEGORIES
+    ]
+    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
+    return InlineKeyboardMarkup(rows)
+
+
+def income_category_keyboard(prefix: str):
+    buttons = [
+        InlineKeyboardButton(label, callback_data=f"{prefix}_{key}")
+        for key, label in INCOME_CATEGORIES
     ]
     rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
     return InlineKeyboardMarkup(rows)
@@ -149,8 +175,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "I'm your expense tracker. Everything works through the buttons below "
         "— no typing commands needed.\n\n"
         f"{BTN_ADD} — log a spend in 3 taps\n"
-        f"{BTN_HISTORY} — see your recent spending\n"
-        f"{BTN_SUMMARY} — weekly or monthly totals\n"
+        f"{BTN_ADD_INCOME} — log income in 3 taps\n"
+        f"{BTN_HISTORY} — see your recent activity\n"
+        f"{BTN_SUMMARY} — income, expenses & net balance\n"
         f"{BTN_BUDGETS} — set spending limits & get warned\n\n"
         "I'll also message you automatically every Monday with a recap.",
         reply_markup=main_menu_keyboard(),
@@ -162,8 +189,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "*How this works*\n\n"
-        f"1️⃣ Tap {BTN_ADD}\n"
-        "2️⃣ Type how much you spent\n"
+        f"1️⃣ Tap {BTN_ADD} or {BTN_ADD_INCOME}\n"
+        "2️⃣ Type the amount\n"
         "3️⃣ Tap a category button\n"
         "4️⃣ Add a note, or skip it\n\n"
         "That's it — it's saved. Use the other buttons any time to check your "
@@ -220,24 +247,27 @@ async def add_category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ASK_NOTE
 
 
-async def finalize_expense(update: Update, context: ContextTypes.DEFAULT_TYPE, note: str, chat_id: int):
+async def finalize_expense(update: Update, context: ContextTypes.DEFAULT_TYPE, note: str, chat_id: int, type_: str = "expense"):
     user_id = update.effective_user.id
     amount = context.user_data.pop("pending_amount")
     category_key = context.user_data.pop("pending_category")
-    db.add_expense(user_id, amount, category_key, note)
+    db.add_expense(user_id, amount, category_key, note, type_=type_)
 
-    label = CATEGORY_LABELS[category_key]
-    text = f"✅ Logged {amount:.2f} — {label}" + (f"\n📝 {note}" if note else "")
+    label = label_for(category_key, type_)
+    sign = "+" if type_ == "income" else ""
+    icon = "💵" if type_ == "income" else "✅"
+    text = f"{icon} Logged {sign}{amount:.2f} — {label}" + (f"\n📝 {note}" if note else "")
 
-    budget = db.get_budget(user_id, category_key)
-    if budget:
-        month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        spent = db.month_total_for_category(user_id, category_key, month_start)
-        pct = spent / budget * 100
-        if spent > budget:
-            text += f"\n\n🚨 You're over budget on {label}: {spent:.2f} / {budget:.2f}"
-        elif pct >= 80:
-            text += f"\n\n⚠️ {pct:.0f}% of your {label} budget used ({spent:.2f} / {budget:.2f})"
+    if type_ == "expense":
+        budget = db.get_budget(user_id, category_key)
+        if budget:
+            month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            spent = db.month_total_for_category(user_id, category_key, month_start)
+            pct = spent / budget * 100
+            if spent > budget:
+                text += f"\n\n🚨 You're over budget on {label}: {spent:.2f} / {budget:.2f}"
+            elif pct >= 80:
+                text += f"\n\n⚠️ {pct:.0f}% of your {label} budget used ({spent:.2f} / {budget:.2f})"
 
     await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=main_menu_keyboard())
 
@@ -252,6 +282,66 @@ async def add_note_skipped(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     await query.edit_message_text("⏭️ No note added.")
     await finalize_expense(update, context, "", update.effective_chat.id)
+    return ConversationHandler.END
+
+
+# ---------------------------------------------------------------------------
+# Add income — mirrors the expense flow above
+# ---------------------------------------------------------------------------
+async def add_income_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not await is_subscribed(context, user_id):
+        await send_gate(update)
+        return ConversationHandler.END
+    db.register_user(user_id)
+    await update.message.reply_text(
+        "💵 How much did you receive? (just type the number, e.g. 500)",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    return ASK_INCOME_AMOUNT
+
+
+async def add_income_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        amount = float(update.message.text.strip())
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("That doesn't look like a valid amount — try again, e.g. 500")
+        return ASK_INCOME_AMOUNT
+    context.user_data["pending_amount"] = amount
+    await update.message.reply_text(
+        "Pick a category:", reply_markup=income_category_keyboard("inccat")
+    )
+    return ASK_INCOME_CATEGORY
+
+
+async def add_income_category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    category_key = query.data.split("_", 1)[1]
+    context.user_data["pending_category"] = category_key
+    await query.edit_message_text(f"Category: {INCOME_CATEGORY_LABELS[category_key]}")
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Want to add a quick note? Type it, or tap Skip.",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("⏭️ Skip", callback_data="skip_income_note")]]
+        ),
+    )
+    return ASK_INCOME_NOTE
+
+
+async def add_income_note_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await finalize_expense(update, context, update.message.text.strip(), update.effective_chat.id, type_="income")
+    return ConversationHandler.END
+
+
+async def add_income_note_skipped(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("⏭️ No note added.")
+    await finalize_expense(update, context, "", update.effective_chat.id, type_="income")
     return ConversationHandler.END
 
 
@@ -276,9 +366,11 @@ async def history_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📋 *Recent expenses:*", parse_mode=ParseMode.MARKDOWN)
     for r in rows:
         date = r["created_at"][:10]
-        label = CATEGORY_LABELS.get(r["category"], f"📦 {r['category']}")
+        type_ = r["type"] if "type" in r.keys() else "expense"
+        label = label_for(r["category"], type_)
+        sign = "+" if type_ == "income" else "-"
         note = f" — {r['note']}" if r["note"] else ""
-        text = f"{date}  {r['amount']:.2f}  {label}{note}"
+        text = f"{date}  {sign}{r['amount']:.2f}  {label}{note}"
         kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton("🗑️ Delete", callback_data=f"del_{r['id']}")]]
         )
@@ -315,15 +407,29 @@ async def summary_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     period = query.data.split("_", 1)[1]
     since = datetime.utcnow() - (timedelta(days=30) if period == "month" else timedelta(days=7))
-    rows, total = db.summary_since(update.effective_user.id, since)
-    if not rows:
-        await query.edit_message_text("No expenses in this period.")
-        return
     label = "month" if period == "month" else "week"
-    lines = [f"📊 *This {label}:* {total:.2f} total\n"]
-    for r in rows:
-        cat_label = CATEGORY_LABELS.get(r["category"], f"📦 {r['category']}")
-        lines.append(f"• {cat_label}: {r['total']:.2f} ({r['cnt']}x)")
+
+    income_total, expense_total = db.totals_since(update.effective_user.id, since)
+    net = income_total - expense_total
+
+    lines = [
+        f"📊 *This {label}:*",
+        f"💵 Income: {income_total:.2f}",
+        f"💸 Expenses: {expense_total:.2f}",
+        f"⚖️ Net Balance: {net:+.2f}",
+        f"🏦 Savings: {net:+.2f}",
+        "",
+    ]
+
+    rows, _ = db.summary_since(update.effective_user.id, since, type_="expense")
+    if rows:
+        lines.append("*Expenses by category:*")
+        for r in rows:
+            cat_label = CATEGORY_LABELS.get(r["category"], f"📦 {r['category']}")
+            lines.append(f"• {cat_label}: {r['total']:.2f} ({r['cnt']}x)")
+    else:
+        lines.append("No expenses in this period.")
+
     await query.edit_message_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 
@@ -397,13 +503,23 @@ async def send_weekly_recap(context: ContextTypes.DEFAULT_TYPE):
     for user_id in db.get_all_users():
         if not await is_subscribed(context, user_id):
             continue
-        rows, total = db.summary_since(user_id, since)
-        if not rows:
+        income_total, expense_total = db.totals_since(user_id, since)
+        rows, _ = db.summary_since(user_id, since, type_="expense")
+        if not rows and income_total == 0:
             continue
-        lines = [f"📊 *Your weekly recap:* {total:.2f} spent\n"]
-        for r in rows:
-            cat_label = CATEGORY_LABELS.get(r["category"], f"📦 {r['category']}")
-            lines.append(f"• {cat_label}: {r['total']:.2f} ({r['cnt']}x)")
+        net = income_total - expense_total
+        lines = [
+            "📊 *Your weekly recap:*",
+            f"💵 Income: {income_total:.2f}",
+            f"💸 Expenses: {expense_total:.2f}",
+            f"⚖️ Net Balance: {net:+.2f}",
+            "",
+        ]
+        if rows:
+            lines.append("*Top expense categories:*")
+            for r in rows:
+                cat_label = CATEGORY_LABELS.get(r["category"], f"📦 {r['category']}")
+                lines.append(f"• {cat_label}: {r['total']:.2f} ({r['cnt']}x)")
         try:
             await context.bot.send_message(
                 chat_id=user_id, text="\n".join(lines), parse_mode=ParseMode.MARKDOWN
@@ -439,6 +555,20 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
     app.add_handler(add_conv)
+
+    add_income_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex(f"^{BTN_ADD_INCOME}$"), add_income_start)],
+        states={
+            ASK_INCOME_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_income_amount_received)],
+            ASK_INCOME_CATEGORY: [CallbackQueryHandler(add_income_category_chosen, pattern="^inccat_")],
+            ASK_INCOME_NOTE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_income_note_received),
+                CallbackQueryHandler(add_income_note_skipped, pattern="^skip_income_note$"),
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    app.add_handler(add_income_conv)
 
     budget_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(budget_start, pattern="^set_budget_start$")],
