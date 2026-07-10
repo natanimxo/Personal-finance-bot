@@ -47,9 +47,9 @@ BTN_HELP = "❓ Help"
 
 ACCOUNTS = [
     ("cash", "💵 Cash"),
-    ("bank", "🏦 Bank"),
+    ("bank", "🏛️ Loan"),
     ("card", "💳 Card"),
-    ("mobile_money", "📱 Mobile Money"),
+    ("mobile_money", "📱 Mobile Banking"),
 ]
 ACCOUNT_LABELS = dict(ACCOUNTS)
 
@@ -197,7 +197,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{BTN_HISTORY} — see your recent activity\n"
         f"{BTN_SUMMARY} — income, expenses & net balance\n"
         f"{BTN_BUDGETS} — set spending limits & get warned\n"
-        f"{BTN_ACCOUNTS} — see balances across Cash/Bank/Card/Mobile Money\n\n"
+        f"{BTN_ACCOUNTS} — see balances across Cash/Loan/Card/Mobile Banking\n\n"
         "I'll also message you automatically every Monday with a recap.",
         reply_markup=main_menu_keyboard(),
         parse_mode=ParseMode.MARKDOWN,
@@ -211,7 +211,7 @@ async def help_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"1️⃣ Tap {BTN_ADD} or {BTN_ADD_INCOME}\n"
         "2️⃣ Type the amount\n"
         "3️⃣ Tap a category button\n"
-        "4️⃣ Tap an account (Cash/Bank/Card/Mobile Money)\n"
+        "4️⃣ Tap an account (Cash/Loan/Card/Mobile Banking)\n"
         "5️⃣ Add a note, or skip it\n\n"
         "That's it — it's saved. Use the other buttons any time to check your "
         "history, totals, or budgets.",
