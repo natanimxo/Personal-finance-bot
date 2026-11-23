@@ -31,39 +31,40 @@ Everything works through buttons — there are no commands to type besides
 2. Copy the token it gives you — that's `BOT_TOKEN`.
 
 ## 2. Set up the subscription gate
-1. `REQUIRED_CHANNEL` = your channel's `@username` (must be public), or its numeric
+1. `CHANNEL_ID` = your channel's `@username` (must be public), or its numeric
    chat ID if private (get this by forwarding a message from the channel to
    [@JsonDumpBot](https://t.me/JsonDumpBot) or similar).
 2. **Add your bot as an admin of the channel** — this is required, otherwise
    `getChatMember` calls will fail and the bot will refuse everyone.
-3. `CHANNEL_INVITE_LINK` = the public `t.me/...` link people tap to join.
+3. `CHANNEL_LINK` = the public `t.me/...` link people tap to join.
 
 ## 3. Environment variables
 | Variable | Required | Meaning |
 | --- | --- | --- |
 | `BOT_TOKEN` | yes | Token from BotFather |
-| `REQUIRED_CHANNEL` | yes | `@username` or numeric ID of the channel users must join |
-| `CHANNEL_INVITE_LINK` | no | Link shown on the "join the channel" screen |
-| `DB_PATH` | no | Where the SQLite database lives (default `finance_bot.db`) |
+| `CHANNEL_ID` | yes | `@username` or numeric ID of the channel users must join (old name `REQUIRED_CHANNEL` still works) |
+| `CHANNEL_LINK` | yes | Link shown on the "join the channel" screen (old name `CHANNEL_INVITE_LINK` still works) |
+| `DB_PATH` | no | Where the SQLite database lives. Default: `$RAILWAY_VOLUME_MOUNT_PATH/expenses.db`, else an existing `./finance_bot.db`, else `./data/expenses.db` |
 
-`env.example` lists them with placeholder values.
+`.env.example` lists every variable, including the ones later phases use.
 
 ## 4. Run locally (optional, to test first)
 ```bash
 python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp env.example .env           # then fill in your real values
+pip install -r requirements-dev.txt
+cp .env.example .env           # then fill in your real values
 export $(cat .env | xargs)    # Windows PowerShell: set each one with $env:BOT_TOKEN="..."
-python bot.py
+python -m app.main
+pytest                        # run the tests
 ```
 `.env` and `finance_bot.db` are in `.gitignore` — never commit your real token.
 
 ## 5. Deploy on Railway
 1. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo** → pick this repo
    (the default branch is `main`).
-2. Railway detects the `Procfile` and runs `python bot.py` as a worker.
-3. In your service's **Variables** tab add `BOT_TOKEN`, `REQUIRED_CHANNEL` and `CHANNEL_INVITE_LINK`.
+2. Railway builds the `Dockerfile` and runs `python -m app.main`.
+3. In your service's **Variables** tab add `BOT_TOKEN`, `CHANNEL_ID` and `CHANNEL_LINK` (a service that already has `REQUIRED_CHANNEL` and `CHANNEL_INVITE_LINK` keeps working).
 4. **Important — persistent storage:** Railway's filesystem resets on every
    redeploy, which would wipe the SQLite database. Go to **Settings → Volumes →
    New Volume**, mount it at `/app/data`, and add the variable

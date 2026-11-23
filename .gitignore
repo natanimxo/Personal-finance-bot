@@ -1,7 +1,16 @@
+# Secrets
 .env
+
+# Databases and backups
+*.db
+*.db-wal
+*.db-shm
+data/
+backups/
+
+# Python
 __pycache__/
 *.pyc
-finance_bot.db
-data/
-venv/
 .venv/
+venv/
+.pytest_cache/
