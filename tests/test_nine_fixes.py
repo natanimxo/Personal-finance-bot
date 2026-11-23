@@ -12,6 +12,7 @@ import pytest
 
 from app import config
 from app.bot.keyboards import BTN_ACCOUNTS, BTN_ADD, BTN_ADD_INCOME, BTN_CANCEL, BTN_HISTORY, BTN_SUMMARY, MINUS
+from app.bot.membership import membership_cache
 from app.db import get_conn, init_db
 from app.services import accounts, periods, transactions
 from app.services.recap import recap_text
@@ -201,6 +202,7 @@ def test_6_gate_with_underscore_link_and_note_with_markup_characters(db, monkeyp
             assert "&lt;b&gt;lunch" in out.texts[1]
 
             h.request.member_status = "left"
+            membership_cache.clear()  # a member is trusted for 15 min; simulate that passing
             out = await h.text("/start")
             assert out[0][1]["parse_mode"] == "HTML" and "my_chan_name" in out.texts[0]
 

@@ -1,5 +1,7 @@
 """Button labels, categories, accounts and keyboards. All bot text is sent as HTML."""
 import html
+import re
+from decimal import Decimal
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import filters
@@ -67,12 +69,28 @@ def account_label(account_key: str) -> str:
     return ACCOUNT_LABELS.get(account_key, account_key)
 
 
+MAX_AMOUNT = 100_000_000
+MAX_NOTE_LENGTH = 200
+
+
+class AmountError(ValueError):
+    """A ValueError whose message is fit to show the user."""
+
+
 def parse_amount(text: str) -> float:
-    """Accepts 12.50, 1,200 or 1 200. Raises ValueError for anything else or <= 0."""
-    amount = float(text.strip().replace(",", "").replace(" ", ""))
-    if amount <= 0 or amount != amount or amount == float("inf"):
-        raise ValueError
-    return amount
+    """Accepts 1500, 1,500, 1 500 and 1500.50. Positive, at most 2 decimal
+    places and at most MAX_AMOUNT; raises AmountError (a ValueError) otherwise."""
+    cleaned = text.strip().replace(",", "").replace(" ", "").replace(" ", "")
+    if not re.fullmatch(r"\d+(\.\d+)?|\.\d+", cleaned):
+        raise AmountError("That doesn't look like an amount.")
+    value = Decimal(cleaned)
+    if value <= 0:
+        raise AmountError("The amount has to be more than 0.")
+    if -value.as_tuple().exponent > 2 and value != value.quantize(Decimal("0.01")):
+        raise AmountError("Use at most 2 decimal places.")
+    if value > MAX_AMOUNT:
+        raise AmountError(f"That's more than the maximum of {MAX_AMOUNT:,}.")
+    return float(value)
 
 
 # ---------------------------------------------------------------------------

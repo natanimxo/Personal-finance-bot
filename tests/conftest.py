@@ -20,3 +20,16 @@ def fresh_db(tmp_path, monkeypatch):
     path = tmp_path / "sub" / "expenses.db"
     monkeypatch.setattr(config, "DB_PATH", str(path))
     return path
+
+
+@pytest.fixture(autouse=True)
+def reset_process_caches():
+    """The membership cache and the known-active set live for the whole process;
+    every test starts with both empty."""
+    from app.bot import membership
+    from app.bot.errors import throttle
+
+    membership.membership_cache.clear()
+    membership._known_active.clear()
+    throttle.last, throttle.suppressed = None, 0
+    yield
