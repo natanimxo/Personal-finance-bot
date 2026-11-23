@@ -2,6 +2,7 @@
 bot and the Mini App can never disagree. Amounts are integer cents (amount_minor)."""
 from datetime import date, datetime, timedelta, timezone
 
+from app import config
 from app.db import get_conn
 from app.services import accounts, budgets, periods, validation
 
@@ -9,7 +10,8 @@ COLUMNS = ("id, user_id, amount_minor, category, note, created_at, occurred_at, 
            "(SELECT a.name FROM accounts a WHERE a.user_id = expenses.user_id AND a.key = expenses.account) "
            "AS account_name, "
            "(SELECT a.name FROM accounts a WHERE a.user_id = expenses.user_id AND a.key = expenses.to_account) "
-           "AS to_account_name")
+           "AS to_account_name, "
+           "(SELECT p.currency FROM user_prefs p WHERE p.user_id = expenses.user_id) AS currency")
 TRANSFER = "transfer"
 PAGE_SIZE = 30
 
@@ -19,6 +21,7 @@ def _entry(row):
         return None
     entry = dict(row)
     entry["amount"] = entry["amount_minor"] / 100  # convenience for display code
+    entry["currency"] = entry.get("currency") or config.DEFAULT_CURRENCY
     return entry
 
 

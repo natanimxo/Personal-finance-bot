@@ -59,7 +59,7 @@ def test_1_recap_covers_last_monday_to_sunday(db):
         with get_conn() as conn:
             conn.execute("UPDATE expenses SET occurred_at = ? WHERE id = ?", (created, entry))
     text = recap_text(UID, start, end)
-    assert "Expenses: 50.00" in text and "Mon 16 Nov – Sun 22 Nov" in text
+    assert "Expenses: KES 50" in text and "Mon 16 Nov – Sun 22 Nov" in text
     assert_valid_html(text)
 
 
@@ -183,8 +183,8 @@ def test_5_history_labels_and_signs(db):
             await h.tap("skip_income_note")
             out = await h.text(BTN_HISTORY)
             assert out.texts[0] == "📋 <b>Recent transactions:</b>"
-            assert "+300.00" in out.texts[1] and "Gift" in out.texts[1]
-            assert f"{MINUS}12.50" in out.texts[2] and "Food" in out.texts[2]
+            assert "+KES 300" in out.texts[1] and "Gift" in out.texts[1]
+            assert f"{MINUS}KES 12.50" in out.texts[2] and "Food" in out.texts[2]
 
     run(scenario())
 
@@ -219,7 +219,7 @@ def test_7_history_mid_entry_shows_history(db):
             # The abandoned entry is gone: "50" is now a quick entry asking for its category,
             # not the old flow's amount (which would answer "Pick a category:").
             out = await h.text("50")
-            assert out.texts == ["50.00: which category?"]
+            assert out.texts == ["KES 50: which category?"]
             assert transactions.list_recent(UID) == []
 
     run(scenario())
@@ -273,7 +273,7 @@ def test_7_unfinished_entry_times_out(db):
             await asyncio.sleep(2.5)
             assert any("timed out" in t for t in [p.get("text", "") for _, p in h.request.sent])
             out = await h.text("75")
-            assert out.texts == ["75.00: which category?"]  # a quick entry, not the timed-out flow
+            assert out.texts == ["KES 75: which category?"]  # a quick entry, not the timed-out flow
 
     run(scenario())
 

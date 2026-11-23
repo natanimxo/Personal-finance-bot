@@ -17,6 +17,7 @@ from app.bot.keyboards import (
 )
 from app.db import db_call
 from app.services import accounts, periods, transactions
+from app.services.money import fmt
 from app.services.validation import ValidationError, check_date, to_minor
 
 EDIT_TEXT = 30
@@ -166,7 +167,7 @@ async def edit_text_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     context.user_data["editing"] = {"id": entry["id"], "field": field}
     prompt = {
-        "amount": f"Type the new amount (now {entry['amount']:.2f}).",
+        "amount": f"Type the new amount (now {fmt(entry['amount_minor'], entry['currency'])}).",
         "note": f"Type the new note (up to {MAX_NOTE_LENGTH} characters), or send <code>-</code> to clear it.",
         "date": "Type the date it happened, e.g. <code>22/11</code> or <code>2026-11-22</code>.",
     }[field]

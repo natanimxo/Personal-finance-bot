@@ -14,9 +14,10 @@ BTN_SUMMARY = "📊 Summary"
 BTN_BUDGETS = "💰 Budgets"
 BTN_ACCOUNTS = "🏦 Accounts"
 BTN_HELP = "❓ Help"
+BTN_SETTINGS = "⚙️ Settings"
 BTN_CANCEL = "❌ Cancel"
 
-MENU_BUTTONS = [BTN_ADD, BTN_ADD_INCOME, BTN_HISTORY, BTN_SUMMARY, BTN_BUDGETS, BTN_ACCOUNTS, BTN_HELP]
+MENU_BUTTONS = [BTN_ADD, BTN_ADD_INCOME, BTN_HISTORY, BTN_SUMMARY, BTN_BUDGETS, BTN_ACCOUNTS, BTN_SETTINGS, BTN_HELP]
 MENU_OR_CANCEL = filters.Text(MENU_BUTTONS + [BTN_CANCEL])
 # Free text typed during a guided flow (amount / note), excluding commands and buttons.
 FLOW_TEXT = filters.TEXT & ~filters.COMMAND & ~MENU_OR_CANCEL
@@ -46,7 +47,7 @@ BTN_OPEN_APP = "📱 Open app"
 
 
 def main_menu_keyboard():
-    rows = [[BTN_ADD, BTN_ADD_INCOME], [BTN_HISTORY, BTN_SUMMARY], [BTN_BUDGETS, BTN_ACCOUNTS], [BTN_HELP]]
+    rows = [[BTN_ADD, BTN_ADD_INCOME], [BTN_HISTORY, BTN_SUMMARY], [BTN_BUDGETS, BTN_ACCOUNTS], [BTN_SETTINGS, BTN_HELP]]
     from app.web.server import mini_app_url
 
     url = mini_app_url()

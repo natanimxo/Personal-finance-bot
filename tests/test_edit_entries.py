@@ -31,7 +31,7 @@ def test_change_amount_category_account_and_note(entry):
                                                                    f"edacc:{entry}", f"edf:note:{entry}"}
             await h.tap(f"edf:amount:{entry}")
             out = await h.text("1,250.50")
-            assert "1250.50" in out.texts[-1]
+            assert "KES 1,250.50" in out.texts[-1]
 
             out = await h.tap(f"edcat:{entry}")
             assert any(b["callback_data"] == f"edsetcat:{entry}:transport" for b in out.buttons())
@@ -64,7 +64,7 @@ def test_an_edit_updates_balances_summaries_and_budgets(entry):
             await h.tap(f"edsetacc:{entry}:bank")
             assert accounts.account_balances(UID) == {"bank": -90.0}
             out = await h.tap("sum_month")
-            assert "Expenses: 90.00" in out.texts[-1]
+            assert "Expenses: KES 90" in out.texts[-1]
 
     run(scenario())
 

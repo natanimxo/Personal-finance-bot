@@ -34,9 +34,11 @@
     return el;
   }
 
+  // Same format as the bot (app/services/money.py): "KES 1,500", "KES 1,500.50", "−KES 200".
   function money(minor, { sign = false } = {}) {
     const n = Math.abs(minor) / 100;
-    const text = n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const cents = Math.abs(minor) % 100 !== 0;
+    const text = n.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 });
     const prefix = sign ? (minor > 0 ? "+" : minor < 0 ? "−" : "") : (minor < 0 ? "−" : "");
     return `${prefix}${state.currency} ${text}`;
   }

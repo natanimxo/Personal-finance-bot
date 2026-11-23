@@ -14,7 +14,8 @@ from telegram.error import Forbidden
 from telegram.ext import ContextTypes
 
 from app.db import db_call
-from app.services import periods, summaries, users
+from app.services import periods, prefs, summaries, users
+from app.services.money import fmt
 from app.services.catalog import CATEGORY_LABELS
 
 logger = logging.getLogger(__name__)
@@ -27,13 +28,15 @@ def recap_text(user_id: int, start: datetime, end: datetime):
     rows, _ = summaries.summary_since(user_id, start, type_="expense", until=end)
     if not rows and income_total == 0:
         return None
+    currency = prefs.get_prefs(user_id)["currency"]
+    m = lambda amount, sign=False: fmt(round(amount * 100), currency, sign)  # noqa: E731
     net = income_total - expense_total
     last_day = end - timedelta(days=1)
     lines = [
         f"📊 <b>Your weekly recap</b> ({start:%a %d %b} – {last_day:%a %d %b})",
-        f"💵 Income: {income_total:.2f}",
-        f"💸 Expenses: {expense_total:.2f}",
-        f"⚖️ Net: {net:+.2f}",
+        f"💵 Income: {m(income_total)}",
+        f"💸 Expenses: {m(expense_total)}",
+        f"⚖️ Net: {m(net, True)}",
     ]
     rate = periods.savings_rate(income_total, expense_total)
     if rate is not None:
@@ -42,7 +45,7 @@ def recap_text(user_id: int, start: datetime, end: datetime):
         lines += ["", "<b>Top expense categories:</b>"]
         for r in rows:
             label = CATEGORY_LABELS.get(r["category"], f"📦 {r['category']}")
-            lines.append(f"• {html.escape(label, quote=False)}: {r['total']:.2f} ({r['cnt']}x)")
+            lines.append(f"• {html.escape(label, quote=False)}: {m(r['total'])} ({r['cnt']}x)")
     return "\n".join(lines)
 
 

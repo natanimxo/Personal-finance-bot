@@ -57,7 +57,9 @@ def summary(user_id: int, period: str = "week", date_from: str = None, date_to: 
     categories = by_category_minor(user_id, start, "expense", end)
     for c in categories:
         c["label"] = catalog.label_for(c["category"], "expense")
+    from app.services.prefs import get_prefs
     return {
+        "currency": get_prefs(user_id)["currency"],
         "period": name,
         "from": start.isoformat(),
         "to": end.isoformat() if end else None,

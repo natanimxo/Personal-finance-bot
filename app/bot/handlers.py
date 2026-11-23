@@ -11,14 +11,16 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from app import config
 from app.bot.keyboards import (
-    BTN_ACCOUNTS, BTN_ADD, BTN_ADD_INCOME, BTN_BUDGETS, BTN_CANCEL, BTN_HELP, BTN_HISTORY, BTN_SUMMARY,
+    BTN_ACCOUNTS, BTN_ADD, BTN_ADD_INCOME, BTN_BUDGETS, BTN_CANCEL, BTN_HELP, BTN_HISTORY, BTN_SETTINGS, BTN_SUMMARY,
     ACCOUNTS, CATEGORY_LABELS, INCOME_CATEGORY_LABELS, MINUS,
     account_keyboard, account_label, cancel_keyboard, category_keyboard, esc, income_category_keyboard,
     MAX_NOTE_LENGTH, label_for, main_menu_keyboard, note_keyboard, parse_amount,
 )
 from app.bot.membership import is_subscribed, require_subscription, send_gate, touch_user
 from app.db import db_call
-from app.services import accounts, budgets, periods, summaries, transactions, users
+from app import config
+from app.services import accounts, budgets, periods, prefs, summaries, transactions, users
+from app.services.money import fmt
 from app.services.backup import run_backup
 from app.services.validation import ValidationError, check_date, to_minor
 from app.services.recap import recap_text
@@ -52,7 +54,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{BTN_HISTORY} — see your recent transactions\n"
         f"{BTN_SUMMARY} — income, expenses, net and savings rate\n"
         f"{BTN_BUDGETS} — set spending limits &amp; get warned\n"
-        f"{BTN_ACCOUNTS} — balances per account; add, rename or archive accounts\n\n"
+        f"{BTN_ACCOUNTS} — balances per account; add, rename or archive accounts\n"
+        f"{BTN_SETTINGS} — currency and the weekly recap\n\n"
         "I'll also message you every Monday morning with last week's recap.",
         reply_markup=main_menu_keyboard(),
     )
@@ -205,7 +208,7 @@ def account_name(entry) -> str:
 def entry_line(entry) -> str:
     if entry["type"] == "transfer":
         to_name = entry.get("to_account_name") or account_label(entry["to_account"])
-        text = f"🔁 Moved {entry['amount']:.2f} — {esc(account_name(entry))} → {esc(to_name)}"
+        text = f"🔁 Moved {fmt(entry['amount_minor'], entry['currency'])} — {esc(account_name(entry))} → {esc(to_name)}"
         day = periods.local_date_of(entry["occurred_at"])
         if day != periods.today():
             text += f"\n📅 {day:%a %d %b %Y}"
@@ -213,10 +216,10 @@ def entry_line(entry) -> str:
             text += f"\n📝 {esc(entry['note'])}"
         return text
     type_ = entry["type"]
-    sign = "+" if type_ == "income" else MINUS
+    signed = entry["amount_minor"] if type_ == "income" else -entry["amount_minor"]
     icon = "💵" if type_ == "income" else "✅"
     text = (
-        f"{icon} Logged {sign}{entry['amount']:.2f} — {esc(label_for(entry['category'], type_))} "
+        f"{icon} Logged {fmt(signed, entry['currency'], sign=True)} — {esc(label_for(entry['category'], type_))} "
         f"({esc(account_name(entry))})"
     )
     day = periods.local_date_of(entry["occurred_at"])
@@ -238,10 +241,11 @@ def budget_warning_text(warning) -> str:
     if not warning:
         return ""
     label = esc(warning["label"])
-    spent, limit = warning["spent_minor"] / 100, warning["limit_minor"] / 100
+    currency = warning.get("currency") or config.DEFAULT_CURRENCY
+    used = f"{fmt(warning['spent_minor'], currency)} / {fmt(warning['limit_minor'], currency)}"
     if warning["level"] == "over":
-        return f"🚨 You're over budget on {label}: {spent:.2f} / {limit:.2f}"
-    return f"⚠️ {warning['percent']}% of your {label} budget used ({spent:.2f} / {limit:.2f})"
+        return f"🚨 You're over budget on {label}: {used}"
+    return f"⚠️ {warning['percent']}% of your {label} budget used ({used})"
 
 
 async def _finalize(update: Update, context: ContextTypes.DEFAULT_TYPE, note: str, type_: str):
@@ -379,11 +383,14 @@ async def leave_flow_for_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     """A menu button (or /start) tapped mid-flow: drop the half-finished entry and run that button."""
     clear_pending(context)
     text = update.message.text if update.message else ""
+    from app.bot.settings_ui import settings_view
+
     view = {
         BTN_HISTORY: history_view,
         BTN_SUMMARY: summary_view,
         BTN_BUDGETS: budgets_view,
         BTN_ACCOUNTS: accounts_view,
+        BTN_SETTINGS: settings_view,
         BTN_HELP: help_view,
     }.get(text, start)
     if view is not start and view is not help_view and view is not history_view:
@@ -412,11 +419,11 @@ async def history_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         note = f" — {esc(r['note'])}" if r["note"] else ""
         if type_ == "transfer":
             to_name = r.get("to_account_name") or account_label(r["to_account"])
-            text = f"{date}  🔁 {r['amount']:.2f}  {esc(account_name(r))} → {esc(to_name)}{note}"
+            text = f"{date}  🔁 {fmt(r['amount_minor'], r['currency'])}  {esc(account_name(r))} → {esc(to_name)}{note}"
         else:
-            sign = "+" if type_ == "income" else MINUS
+            signed = r["amount_minor"] if type_ == "income" else -r["amount_minor"]
             text = (
-                f"{date}  {sign}{r['amount']:.2f}  {esc(label_for(r['category'], type_))} · "
+                f"{date}  {fmt(signed, r['currency'], sign=True)}  {esc(label_for(r['category'], type_))} · "
                 f"{esc(account_name(r))}{note}"
             )
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("✏️ Edit", callback_data=f"edit:{r['id']}"),
@@ -448,20 +455,20 @@ async def summary_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def format_summary(data: dict) -> str:
     since = datetime.fromisoformat(data["from"])
     title = "This month" if data["period"] == "month" else "This week"
-    income, expense, net = data["income_minor"] / 100, data["expense_minor"] / 100, data["net_minor"] / 100
+    c = data["currency"]
     lines = [
         f"📊 <b>{title}</b> (since {since:%a %d %b})",
-        f"💵 Income: {income:.2f}",
-        f"💸 Expenses: {expense:.2f}",
-        f"⚖️ Net: {net:+.2f}",
+        f"💵 Income: {fmt(data['income_minor'], c)}",
+        f"💸 Expenses: {fmt(data['expense_minor'], c)}",
+        f"⚖️ Net: {fmt(data['net_minor'], c, sign=True)}",
     ]
     if data["savings_rate"] is not None:
         lines.append(f"💹 Savings rate: {data['savings_rate']:.0f}%")
     lines.append("")
     if data["by_category"]:
         lines.append("<b>Expenses by category:</b>")
-        for c in data["by_category"]:
-            lines.append(f"• {esc(c['label'])}: {c['total_minor'] / 100:.2f} ({c['count']}x)")
+        for cat in data["by_category"]:
+            lines.append(f"• {esc(cat['label'])}: {fmt(cat['total_minor'], c)} ({cat['count']}x)")
     else:
         lines.append("No expenses in this period.")
     return "\n".join(lines)
@@ -489,14 +496,15 @@ async def accounts_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def accounts_screen(user_id: int):
     rows = await db_call(accounts.overview, user_id)
+    c = (await db_call(prefs.get_prefs, user_id))["currency"]
     active = [r for r in rows if not r["archived"]]
     archived = [r for r in rows if r["archived"]]
     lines = ["🏦 <b>Account balances:</b>"]
     for r in active:
-        lines.append(f"• {esc(r['label'])}: {r['balance_minor'] / 100:+.2f}{' ⭐' if r['is_default'] else ''}")
+        lines.append(f"• {esc(r['label'])}: {fmt(r['balance_minor'], c)}{' ⭐' if r['is_default'] else ''}")
     if archived:
         lines.append("\n<b>Archived:</b>")
-        lines += [f"• {esc(r['label'])}: {r['balance_minor'] / 100:+.2f}" for r in archived]
+        lines += [f"• {esc(r['label'])}: {fmt(r['balance_minor'], c)}" for r in archived]
     if any(r["is_default"] for r in active):
         lines.append("\n⭐ = your default account. New entries go there without asking.")
     else:
@@ -548,7 +556,8 @@ async def budgets_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = await db_call(budgets.get_budgets, update.effective_user.id)
     lines = ["💰 <b>Your monthly budgets:</b>"]
     if rows:
-        lines += [f"• {esc(label_for(r['category'], 'expense'))}: {r['amount']:.2f}" for r in rows]
+        c = (await db_call(prefs.get_prefs, update.effective_user.id))["currency"]
+        lines += [f"• {esc(label_for(r['category'], 'expense'))}: {fmt(round(r['amount'] * 100), c)}" for r in rows]
     else:
         lines.append("None set yet.")
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("➕ Set a budget", callback_data="set_budget_start")]])
@@ -593,7 +602,8 @@ async def budget_amount_received(update: Update, context: ContextTypes.DEFAULT_T
     category_key = context.user_data.pop("pending_budget_category")
     await db_call(budgets.set_budget, update.effective_user.id, category_key, amount)
     await update.message.reply_text(
-        f"✅ Budget for {esc(CATEGORY_LABELS[category_key])} set to {amount:.2f} a month",
+        f"✅ Budget for {esc(CATEGORY_LABELS[category_key])} set to "
+        f"{fmt(to_minor(amount), (await db_call(prefs.get_prefs, update.effective_user.id))['currency'])} a month",
         reply_markup=main_menu_keyboard(),
     )
     return ConversationHandler.END

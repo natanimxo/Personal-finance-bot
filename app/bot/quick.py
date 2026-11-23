@@ -6,7 +6,8 @@ from app.bot.handlers import budget_warning_text, entry_line
 from app.bot.keyboards import category_keyboard, esc, income_category_keyboard, main_menu_keyboard
 from app.bot.membership import require_subscription
 from app.db import db_call
-from app.services import accounts, quick_entry, transactions
+from app.services import accounts, prefs, quick_entry, transactions
+from app.services.money import fmt
 from app.services.validation import ValidationError
 
 
@@ -48,10 +49,9 @@ async def quick_entry_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     # No category word: ask for it, with the amount (and any account/note) kept.
     context.user_data["quick"] = data
     keyboard = (income_category_keyboard if parsed.type == "income" else category_keyboard)("qcat")
-    sign = "+" if parsed.type == "income" else ""
-    await update.message.reply_text(
-        f"{sign}{parsed.amount_minor / 100:.2f}: which category?", reply_markup=keyboard
-    )
+    currency = (await db_call(prefs.get_prefs, update.effective_user.id))["currency"]
+    shown = fmt(parsed.amount_minor, currency, sign=parsed.type == "income")
+    await update.message.reply_text(f"{shown}: which category?", reply_markup=keyboard)
 
 
 async def quick_category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):

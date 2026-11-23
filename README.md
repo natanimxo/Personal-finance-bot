@@ -16,6 +16,7 @@ Everything works through buttons — there are no commands to type besides
 | 📊 Summary | Income, expenses, net and savings rate (net ÷ income, shown when there is income) for this week (from Monday) or this month (from the 1st), plus spending by category |
 | 💰 Budgets | Set a monthly limit per expense category. You're warned at 80% and when you go over |
 | 🏦 Accounts | Balance per account and your ⭐ default account (new entries use it without asking). 🔁 Transfer moves money between accounts (From → To → amount): both balances change, but it never counts as income or an expense. ➕ Add, ✏️ Rename and 🗄️ Archive accounts, and ♻️ restore archived ones. A rename or archive keeps the account's history and balance |
+| ⚙️ Settings | Your currency (amounts show as `KES 1,500`; pick from a list or type any 3-letter code) and the weekly recap on/off. Also `/settings` |
 | ❓ Help | How the flow works |
 
 - **Quick entry:** just send `500 food lunch`, `+20000 salary` or

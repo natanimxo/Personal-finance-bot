@@ -52,8 +52,10 @@ def warning_for(user_id: int, category: str, now: datetime = None):
         level = "near"
     else:
         return None
+    from app.services.prefs import get_prefs
     return {"level": level, "category": category, "label": catalog.label_for(category, "expense"),
-            "spent_minor": spent, "limit_minor": limit, "percent": round(pct)}
+            "spent_minor": spent, "limit_minor": limit, "percent": round(pct),
+            "currency": get_prefs(user_id)["currency"]}
 
 
 def overview(user_id: int, now: datetime = None):

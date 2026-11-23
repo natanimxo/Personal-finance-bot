@@ -12,9 +12,9 @@ from telegram.ext import (
 from telegram.warnings import PTBUserWarning
 
 from app.bot import handlers as h
-from app.bot import accounts_ui, edit, quick
+from app.bot import accounts_ui, edit, quick, settings_ui
 from app.bot.keyboards import (
-    BTN_ACCOUNTS, BTN_ADD, BTN_ADD_INCOME, BTN_BUDGETS, BTN_CANCEL, BTN_HELP, BTN_HISTORY, BTN_SUMMARY,
+    BTN_ACCOUNTS, BTN_ADD, BTN_ADD_INCOME, BTN_BUDGETS, BTN_CANCEL, BTN_HELP, BTN_HISTORY, BTN_SETTINGS, BTN_SUMMARY,
     CB_FLOW_CANCEL, FLOW_TEXT, MENU_BUTTONS,
 )
 from app.bot.errors import on_error
@@ -24,7 +24,7 @@ FLOW_TIMEOUT = 10 * 60  # seconds an unfinished entry stays open
 
 # Buttons that open a plain screen. Add Expense / Add Income are entry points of the
 # flow itself, so tapping them mid-flow restarts the flow with that type (allow_reentry).
-SCREEN_BUTTONS = [BTN_HISTORY, BTN_SUMMARY, BTN_BUDGETS, BTN_ACCOUNTS, BTN_HELP]
+SCREEN_BUTTONS = [BTN_HISTORY, BTN_SUMMARY, BTN_BUDGETS, BTN_ACCOUNTS, BTN_SETTINGS, BTN_HELP]
 
 
 def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
@@ -41,6 +41,7 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 CallbackQueryHandler(edit.edit_text_start, pattern=r"^edf:(amount|note|date):\d+$"),
                 CallbackQueryHandler(accounts_ui.name_start, pattern=r"^acc:(add|ren:\w+)$"),
                 CallbackQueryHandler(accounts_ui.transfer_start, pattern=r"^acc:transfer$"),
+                CallbackQueryHandler(settings_ui.other_currency_start, pattern=r"^cur:other$"),
             ],
             states={
                 h.ASK_AMOUNT: [MessageHandler(FLOW_TEXT, h.add_amount_received)],
@@ -67,6 +68,7 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 accounts_ui.TRANSFER_FROM: [CallbackQueryHandler(accounts_ui.transfer_from, pattern=r"^trf:\w+$")],
                 accounts_ui.TRANSFER_TO: [CallbackQueryHandler(accounts_ui.transfer_to, pattern=r"^trt:\w+$")],
                 accounts_ui.TRANSFER_AMOUNT: [MessageHandler(FLOW_TEXT, accounts_ui.transfer_amount)],
+                settings_ui.SETTINGS_CURRENCY: [MessageHandler(FLOW_TEXT, settings_ui.other_currency_received)],
                 ConversationHandler.TIMEOUT: [
                     MessageHandler(filters.ALL, h.conversation_timeout),
                     CallbackQueryHandler(h.conversation_timeout),
@@ -105,6 +107,12 @@ def register_handlers(app, flow_timeout: int = FLOW_TIMEOUT):
     app.add_handler(MessageHandler(filters.Text([BTN_SUMMARY]), h.summary_view))
     app.add_handler(MessageHandler(filters.Text([BTN_BUDGETS]), h.budgets_view))
     app.add_handler(MessageHandler(filters.Text([BTN_ACCOUNTS]), h.accounts_view))
+    app.add_handler(MessageHandler(filters.Text([BTN_SETTINGS]), settings_ui.settings_view))
+    app.add_handler(CommandHandler("settings", settings_ui.settings_view))
+    app.add_handler(CallbackQueryHandler(settings_ui.currency_menu, pattern=r"^set:currency$"))
+    app.add_handler(CallbackQueryHandler(settings_ui.currency_chosen, pattern=r"^cur:[A-Z]{3}$"))
+    app.add_handler(CallbackQueryHandler(settings_ui.toggle_recap, pattern=r"^set:recap$"))
+    app.add_handler(CallbackQueryHandler(settings_ui.back, pattern=r"^set:back$"))
 
     app.add_handler(CallbackQueryHandler(recheck_sub_callback, pattern="^recheck_sub$"))
     app.add_handler(CallbackQueryHandler(h.delete_callback, pattern="^del_"))

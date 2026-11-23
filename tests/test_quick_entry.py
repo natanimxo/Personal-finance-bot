@@ -74,7 +74,7 @@ def test_bot_logs_the_three_examples_in_one_message_each(db):
     async def scenario():
         async with Harness() as h:
             out = await h.text("500 food lunch")
-            assert "Logged −500.00" in out.texts[0] and "Food" in out.texts[0] and "lunch" in out.texts[0]
+            assert "Logged −KES 500 " in out.texts[0] and "Food" in out.texts[0] and "lunch" in out.texts[0]
             assert any(b.get("callback_data", "").startswith("undo:") for b in out.buttons())
             await h.text("+20000 salary")
             await h.text("350 transport mpesa matatu")
@@ -91,7 +91,7 @@ def test_unknown_category_shows_buttons_with_the_amount_kept(db):
     async def scenario():
         async with Harness() as h:
             out = await h.text("750 bank sugar")
-            assert "750.00" in out.texts[0]
+            assert "KES 750" in out.texts[0]
             assert any(b.get("callback_data") == "qcat_food" for b in out.buttons())
             out = await h.tap("qcat_food")
             assert "Logged" in out.texts[-1]

@@ -243,7 +243,7 @@ def test_entry_added_in_the_app_shows_in_bot_history_and_back(server):
         return [p.get("text", "") for _, p in server.fake.sent]
 
     history = bot_says(BTN_HISTORY)
-    assert any("42.00" in t and "from app" in t for t in history)
+    assert any("KES 42" in t and "from app" in t for t in history)
 
     bot_says("➕ Add Expense")
     bot_says("17")
