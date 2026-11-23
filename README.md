@@ -16,7 +16,7 @@ Everything works through buttons — there are no commands to type besides
 | 📊 Summary | Income, expenses, net and savings rate (net ÷ income, shown when there is income) for this week (from Monday) or this month (from the 1st), plus spending by category |
 | 💰 Budgets | Set a monthly limit per expense category. You're warned at 80% and when you go over |
 | 🏦 Accounts | Balance per account and your ⭐ default account (new entries use it without asking). 🔁 Transfer moves money between accounts (From → To → amount): both balances change, but it never counts as income or an expense. ➕ Add, ✏️ Rename and 🗄️ Archive accounts, and ♻️ restore archived ones. A rename or archive keeps the account's history and balance |
-| ⚙️ Settings | Your currency (amounts show as `KES 1,500`; pick from a list or type any 3-letter code), the weekly recap on/off, 🏷️ Categories (add, rename, hide or show again, for expenses and income; a hidden category leaves the pickers but its past entries still count in summaries), 🔁 Recurring entries (stop any of them), and 📤 Export CSV. Also `/settings` and `/export` |
+| ⚙️ Settings | Your currency (amounts show as `KES 1,500`; pick from a list or type any 3-letter code), the weekly and monthly recaps on/off, 🏷️ Categories (add, rename, hide or show again, for expenses and income; a hidden category leaves the pickers but its past entries still count in summaries), 🔁 Recurring entries (stop any of them), and 📤 Export CSV. Also `/settings` and `/export` |
 | ❓ Help | How the flow works |
 
 - **Quick entry:** just send `500 food lunch`, `+20000 salary` or
@@ -34,7 +34,10 @@ Everything works through buttons — there are no commands to type besides
   button also ends a half-finished entry and opens that screen, and an
   unfinished entry times out after 10 minutes.
 - Every **Monday at 08:00** (`APP_TIMEZONE`, default Africa/Nairobi) each
-  subscribed user who logged something gets a recap of the previous Monday–Sunday.
+  subscribed user who logged something gets a recap of the previous Monday–Sunday,
+  compared with the week before it (↑/↓ %) and naming the top category. On the
+  **1st at 08:00** a monthly recap covers the month that just ended. Each can be
+  turned off in ⚙️ Settings (bot or Mini App).
 - **CSV export:** 📤 in ⚙️ Settings (bot or Mini App) or `/export`. The bot
   sends the file into the chat. It has one row per entry (date it happened,
   type, category, account, to-account for transfers, amount, currency, note),
@@ -49,7 +52,7 @@ Everything works through buttons — there are no commands to type besides
   Summary, budgets and the recap all use the same periods, and they count an
   entry by the date it **happened** (which can be in the past), not when it was logged.
 - Admin commands (only for `ADMIN_CHAT_ID`; anyone else gets no reply):
-  `/recap_now` sends the admin a preview of their own recap, and
+  `/recap_now` (or `/recap_now month`) sends the admin a preview of their own recap, and
   `/backup_now` makes a backup and sends it to the admin chat.
 - Errors are logged in full, and the admin gets a short alert (at most one a minute).
 - `GET /healthz` on `$PORT` answers 200 when the database responds, 503 when it doesn't.

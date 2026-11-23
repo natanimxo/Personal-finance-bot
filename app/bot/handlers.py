@@ -56,8 +56,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{BTN_SUMMARY} — income, expenses, net and savings rate\n"
         f"{BTN_BUDGETS} — set spending limits &amp; get warned\n"
         f"{BTN_ACCOUNTS} — balances per account; add, rename or archive accounts\n"
-        f"{BTN_SETTINGS} — currency and the weekly recap\n\n"
-        "I'll also message you every Monday morning with last week's recap.",
+        f"{BTN_SETTINGS} — currency, recaps, categories, recurring entries, export\n\n"
+        "I'll also message you every Monday morning with last week's recap, and on the 1st with last month's.",
         reply_markup=main_menu_keyboard(),
     )
 
@@ -601,11 +601,13 @@ def is_admin(update: Update) -> bool:
 
 
 async def recap_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin only: send the admin's own last-week recap to ADMIN_CHAT_ID, nobody else."""
+    """Admin only: send the admin's own last-week recap (/recap_now month: last month's)
+    to ADMIN_CHAT_ID, nobody else."""
     if not is_admin(update):
         return
-    start, end = periods.previous_week()
-    text = await db_call(recap_text, update.effective_user.id, start, end) or (
+    kind = "monthly" if context.args and context.args[0].lower().startswith("month") else "weekly"
+    start, end = periods.previous_month() if kind == "monthly" else periods.previous_week()
+    text = await db_call(recap_text, update.effective_user.id, start, end, kind) or (
         f"📊 Recap preview: nothing logged between {start:%a %d %b} and {end:%a %d %b}."
     )
     await context.bot.send_message(chat_id=config.ADMIN_CHAT_ID, text=text)

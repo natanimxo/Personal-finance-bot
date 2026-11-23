@@ -1,4 +1,4 @@
-"""The bot's ⚙️ Settings: currency and the weekly recap (Phase 4 adds more here)."""
+"""The bot's ⚙️ Settings: currency, recaps, categories, recurring entries, export."""
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes, ConversationHandler
 
@@ -18,11 +18,13 @@ async def settings_screen(user_id: int):
     text = (
         "⚙️ <b>Settings</b>\n\n"
         f"💱 Currency: <b>{esc(p['currency'])}</b> (amounts look like {esc(fmt(150000, p['currency']))})\n"
-        f"🔔 Weekly recap: <b>{'on' if p['recap_enabled'] else 'off'}</b>"
+        f"🔔 Weekly recap (Monday): <b>{'on' if p['recap_enabled'] else 'off'}</b>\n"
+        f"🗓️ Monthly recap (the 1st): <b>{'on' if p['monthly_recap_enabled'] else 'off'}</b>"
     )
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("💱 Change currency", callback_data="set:currency")],
-        [InlineKeyboardButton(f"🔔 Turn weekly recap {'off' if p['recap_enabled'] else 'on'}", callback_data="set:recap")],
+        [InlineKeyboardButton(f"🔔 Weekly recap {'off' if p['recap_enabled'] else 'on'}", callback_data="set:recap"),
+         InlineKeyboardButton(f"🗓️ Monthly recap {'off' if p['monthly_recap_enabled'] else 'on'}", callback_data="set:mrecap")],
         [InlineKeyboardButton("🏷️ Categories", callback_data="cat:list:expense"),
          InlineKeyboardButton("🔁 Recurring entries", callback_data="set:recurring")],
         [InlineKeyboardButton("📤 Export CSV", callback_data="set:export")],
@@ -61,10 +63,13 @@ async def currency_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def toggle_recap(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """set:recap (weekly) or set:mrecap (monthly)."""
     query = update.callback_query
-    current = (await db_call(prefs.get_prefs, update.effective_user.id))["recap_enabled"]
-    await db_call(prefs.set_prefs, update.effective_user.id, None, not current)
-    await query.answer("Weekly recap " + ("off" if current else "on"))
+    monthly = query.data == "set:mrecap"
+    field = "monthly_recap_enabled" if monthly else "recap_enabled"
+    current = (await db_call(prefs.get_prefs, update.effective_user.id))[field]
+    await db_call(prefs.set_prefs, update.effective_user.id, **{field: not current})
+    await query.answer(("Monthly" if monthly else "Weekly") + " recap " + ("off" if current else "on"))
     await _refresh(query, update.effective_user.id)
 
 

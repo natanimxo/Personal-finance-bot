@@ -13,7 +13,7 @@ from app.bot.conversations import FLOW_TIMEOUT, register_handlers
 from app.bot.ratelimit import SendRateLimiter
 from app.db import init_db
 from app.services.backup import daily_backup_job
-from app.services.recap import send_weekly_recap
+from app.services.recap import send_monthly_recap, send_weekly_recap
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)  # one INFO line per Telegram call is noise at 1,000 users
@@ -41,6 +41,7 @@ def build_application(request=None, flow_timeout: int = FLOW_TIMEOUT) -> Applica
     app = builder.build()
     register_handlers(app, flow_timeout)
     app.job_queue.run_daily(send_weekly_recap, time=RECAP_TIME.replace(tzinfo=tz), days=RECAP_DAYS, name="weekly_recap")
+    app.job_queue.run_monthly(send_monthly_recap, when=RECAP_TIME.replace(tzinfo=tz), day=1, name="monthly_recap")
     app.job_queue.run_daily(daily_backup_job, time=BACKUP_TIME.replace(tzinfo=tz), name="daily_backup")
     from app.bot.recurring_ui import recurring_job
     app.job_queue.run_daily(recurring_job, time=RECURRING_TIME.replace(tzinfo=tz), name="recurring")

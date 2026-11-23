@@ -61,7 +61,7 @@ def test_change_currency_in_bot_settings(db):
             assert "Currency set to MWK" in out.texts[0]
             assert prefs.get_prefs(UID)["currency"] == "MWK"
             out = await h.tap("set:recap")
-            assert prefs.get_prefs(UID)["recap_enabled"] is False and "recap: <b>off</b>" in out.texts[-1]
+            assert prefs.get_prefs(UID)["recap_enabled"] is False and "Weekly recap (Monday): <b>off</b>" in out.texts[-1]
 
     run(scenario())
 

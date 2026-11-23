@@ -39,6 +39,13 @@ def previous_week(now: datetime = None):
     return end - timedelta(days=7), end
 
 
+def previous_month(now: datetime = None):
+    """(start, end) of last calendar month; end is exclusive."""
+    end = month_start(now)
+    start = (end - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return start, end
+
+
 def to_db(moment: datetime) -> str:
     """An aware datetime as the naive UTC ISO text that dates are stored in."""
     if moment.tzinfo is None:

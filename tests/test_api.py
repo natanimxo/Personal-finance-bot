@@ -97,7 +97,7 @@ def test_non_member_gets_403_with_the_join_link(server):
 def test_me(server):
     body = server.get("/api/me", headers=auth()).json()
     assert body["user"]["id"] == UID
-    assert body["settings"] == {"currency": "KES", "recap_enabled": True}
+    assert body["settings"] == {"currency": "KES", "recap_enabled": True, "monthly_recap_enabled": True}
     # A new user starts with the plan's default accounts: Cash, M-Pesa, Bank, Card.
     assert [(a["account"], a["label"]) for a in body["accounts"]] == [
         ("cash", "💵 Cash"), ("mobile_money", "📱 M-Pesa"), ("bank", "🏦 Bank"), ("card", "💳 Card")]
@@ -201,7 +201,7 @@ def test_budgets_set_and_remove(server):
 
 def test_settings(server):
     r = server.put("/api/settings", headers=auth(), json={"currency": "etb", "recap_enabled": False})
-    assert r.json()["settings"] == {"currency": "ETB", "recap_enabled": False}
+    assert r.json()["settings"] == {"currency": "ETB", "recap_enabled": False, "monthly_recap_enabled": True}
     assert server.get("/api/me", headers=auth()).json()["settings"]["currency"] == "ETB"
     assert server.put("/api/settings", headers=auth(), json={"currency": "birr"}).status_code == 422
 

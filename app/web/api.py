@@ -382,11 +382,13 @@ async def edit_account(key: str, body: AccountEdit, user: CurrentUser = Depends(
 class SettingsChange(BaseModel):
     currency: Optional[str] = None
     recap_enabled: Optional[bool] = None
+    monthly_recap_enabled: Optional[bool] = None
 
 
 @router.put("/settings")
 async def put_settings(body: SettingsChange, user: CurrentUser = Depends(current_user)):
     try:
-        return {"settings": await db_call(prefs.set_prefs, user.id, body.currency, body.recap_enabled)}
+        return {"settings": await db_call(prefs.set_prefs, user.id, body.currency, body.recap_enabled,
+                                          body.monthly_recap_enabled)}
     except ValidationError as e:
         return validation_response(e)

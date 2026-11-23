@@ -659,6 +659,7 @@
     const currency = h("select", { class: "input", "aria-label": "Currency", onchange: (e) => update({ currency: e.target.value }) },
       options.map((c) => h("option", { value: c, selected: c === s.currency }, c)));
     const recap = h("input", { type: "checkbox", checked: s.recap_enabled, onchange: (e) => update({ recap_enabled: e.target.checked }) });
+    const monthly = h("input", { type: "checkbox", checked: s.monthly_recap_enabled, onchange: (e) => update({ monthly_recap_enabled: e.target.checked }) });
 
     async function update(change) {
       try {
@@ -674,8 +675,11 @@
       h("div", { class: "list" },
         h("label", { class: "row" }, h("span", { class: "main" }, "Currency"), h("span", { style: "width:120px" }, currency)),
         h("label", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Weekly recap"),
-          h("div", { class: "sub" }, "A summary from the bot every Monday morning")),
-          h("span", { class: "switch" }, recap, h("span", {})))),
+          h("div", { class: "sub" }, "Every Monday morning, compared with the week before")),
+          h("span", { class: "switch" }, recap, h("span", {}))),
+        h("label", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Monthly recap"),
+          h("div", { class: "sub" }, "On the 1st, for the month that just ended")),
+          h("span", { class: "switch" }, monthly, h("span", {})))),
       h("h2", {}, "Categories"),
       categoryBox,
       h("h2", {}, "Recurring"),
