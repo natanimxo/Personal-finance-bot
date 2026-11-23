@@ -11,7 +11,7 @@ from app import config
 from app.bot.handlers import budget_warning_text
 from app.bot.membership import is_subscribed, touch_user
 from app.db import db_call
-from app.services import accounts, budgets, catalog, prefs, summaries, transactions
+from app.services import accounts, budgets, catalog, prefs, quick_entry, summaries, transactions
 from app.services.validation import ValidationError, check_category, parse_amount_minor
 from app.web.auth import InitDataError, validate_init_data
 
@@ -175,6 +175,34 @@ async def delete_transaction(entry_id: int, user: CurrentUser = Depends(current_
     if not await db_call(transactions.delete_entry, user.id, entry_id):
         raise HTTPException(404, detail={"error": "No such entry."})
     return {"deleted": entry_id}
+
+
+class QuickText(BaseModel):
+    text: str
+
+
+@router.post("/quick")
+async def quick(body: QuickText, request: Request, user: CurrentUser = Depends(current_user)):
+    """Quick entry, same rules as the bot. Without a category word, returns what was
+    understood so the app can open the Add screen with it filled in."""
+    try:
+        parsed = quick_entry.parse(body.text)
+    except ValidationError as e:
+        return validation_response(e)
+    if parsed is None:
+        return JSONResponse(status_code=422, content={"error": "Start with an amount, like: 500 food lunch", "field": "text"})
+    draft = {"amount_minor": parsed.amount_minor, "type": parsed.type, "category": parsed.category,
+             "account": parsed.account, "note": parsed.note}
+    if not parsed.category:
+        return {"entry": None, "draft": draft, "warning": None}
+    account = parsed.account or await db_call(accounts.get_default_account, user.id) or "cash"
+    try:
+        entry, warning = await db_call(transactions.add_entry, user.id, parsed.amount_minor, parsed.type,
+                                       parsed.category, account, parsed.note)
+    except ValidationError as e:
+        return validation_response(e)
+    await notify_warning(request, user.id, warning)
+    return {"entry": entry_json(entry), "draft": None, "warning": warning}
 
 
 # --- budgets / accounts / settings -----------------------------------------------------

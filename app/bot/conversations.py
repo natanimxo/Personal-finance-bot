@@ -12,6 +12,7 @@ from telegram.ext import (
 from telegram.warnings import PTBUserWarning
 
 from app.bot import handlers as h
+from app.bot import quick
 from app.bot.keyboards import (
     BTN_ACCOUNTS, BTN_ADD, BTN_ADD_INCOME, BTN_BUDGETS, BTN_CANCEL, BTN_HELP, BTN_HISTORY, BTN_SUMMARY,
     CB_FLOW_CANCEL, FLOW_TEXT, MENU_BUTTONS,
@@ -102,3 +103,10 @@ def register_handlers(app, flow_timeout: int = FLOW_TIMEOUT):
     app.add_handler(CallbackQueryHandler(h.change_account_start, pattern=r"^chacc:\d+$"))
     app.add_handler(CallbackQueryHandler(h.change_account_chosen, pattern=r"^setacc:\d+:\w+$"))
     app.add_handler(CallbackQueryHandler(h.stale_cancel, pattern=f"^{CB_FLOW_CANCEL}$"))
+
+    # Quick entry: a plain message that starts with an amount ("500 food lunch").
+    # Registered after the flows, so a number typed as a flow's answer goes to the flow.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Regex(r"^\s*\+?\s*\.?\d"),
+                                   quick.quick_entry_message))
+    app.add_handler(CallbackQueryHandler(quick.quick_category_chosen, pattern="^qcat_"))
+    app.add_handler(CallbackQueryHandler(quick.undo_callback, pattern=r"^undo:\d+$"))

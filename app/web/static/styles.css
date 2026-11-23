@@ -135,3 +135,8 @@ body.has-fallback main { padding-bottom: 80px; }
   max-width: calc(100% - 32px); background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px;
   font-size: 14px; z-index: 10; box-shadow: 0 4px 14px rgba(0,0,0,.2); }
 .toast.warn { background: var(--warn); color: #fff; }
+
+.quick { display: flex; gap: 8px; margin-top: 12px; }
+.quick .input { flex: 1; }
+.toast { display: flex; align-items: center; gap: 12px; }
+.toast-action { border: 0; background: none; color: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; padding: 0; }

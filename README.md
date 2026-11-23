@@ -18,6 +18,13 @@ Everything works through buttons — there are no commands to type besides
 | 🏦 Accounts | Balance per account (Cash, Bank, Card, Mobile Wallets) and your ⭐ default account, which new entries use without asking |
 | ❓ Help | How the flow works |
 
+- **Quick entry:** just send `500 food lunch`, `+20000 salary` or
+  `350 transport mpesa matatu`. The number comes first, and `+` means income.
+  Category and account words are matched case-insensitively (aliases like
+  lunch → Food, matatu → Transport, mpesa → Mobile Wallets), and the rest
+  becomes the note. With no category word you get the category buttons, with
+  the amount kept. Every quick entry has an ↩️ Undo button. The Mini App's
+  Home screen has the same box.
 - Expense categories: Food, Transport, Bills, Shopping, Fun, Other.
 - Amounts accept `12.50`, `1,200` or `1 200`.
 - Every step has a ❌ Cancel button (or send `/cancel`). Tapping any menu

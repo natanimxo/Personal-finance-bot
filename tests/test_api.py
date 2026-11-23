@@ -351,3 +351,11 @@ def test_list_is_ordered_by_date_not_by_id(server):
     assert len(dates) == 35 and dates == sorted(dates, reverse=True)
     assert second["next_cursor"] is None
     assert server.get("/api/transactions", params={"cursor": "junk"}, headers=auth()).status_code == 422
+
+
+def test_quick_add_in_the_app(server):
+    r = server.post("/api/quick", headers=auth(), json={"text": "350 transport mpesa matatu"}).json()
+    assert r["entry"]["amount_minor"] == 35000 and r["entry"]["account"] == "mobile_money"
+    r = server.post("/api/quick", headers=auth(), json={"text": "500 sugar"}).json()
+    assert r["entry"] is None and r["draft"]["amount_minor"] == 50000 and r["draft"]["note"] == "sugar"
+    assert server.post("/api/quick", headers=auth(), json={"text": "hello"}).status_code == 422

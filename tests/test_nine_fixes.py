@@ -216,7 +216,11 @@ def test_7_history_mid_entry_shows_history(db):
             await h.text(BTN_ADD)
             out = await h.text(BTN_HISTORY)
             assert out.texts[0].startswith("No transactions yet") and out.has_main_keyboard(0)
-            assert await h.text("50") == []   # the entry is gone; 50 is not an amount any more
+            # The abandoned entry is gone: "50" is now a quick entry asking for its category,
+            # not the old flow's amount (which would answer "Pick a category:").
+            out = await h.text("50")
+            assert out.texts == ["50.00: which category?"]
+            assert transactions.list_recent(UID) == []
 
     run(scenario())
 
@@ -268,7 +272,8 @@ def test_7_unfinished_entry_times_out(db):
             h.request.sent.clear()
             await asyncio.sleep(2.5)
             assert any("timed out" in t for t in [p.get("text", "") for _, p in h.request.sent])
-            assert await h.text("75") == []
+            out = await h.text("75")
+            assert out.texts == ["75.00: which category?"]  # a quick entry, not the timed-out flow
 
     run(scenario())
 

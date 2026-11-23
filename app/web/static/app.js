@@ -45,9 +45,19 @@
     try { tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred(kind); } catch (_) {}
   }
 
+  let undoAction = null;  // id of the entry a quick add just created
   let toastTimer;
   function toast(text, kind = "") {
-    toastEl.textContent = text;
+    toastEl.replaceChildren(document.createTextNode(text));
+    if (undoAction) {
+      const id = undoAction;
+      undoAction = null;
+      toastEl.append(h("button", { class: "toast-action", onclick: async () => {
+        toastEl.hidden = true;
+        try { await api(`/api/transactions/${id}`, { method: "DELETE" }); toast("Undone"); go(state.route); }
+        catch (err) { toast(err.message); }
+      } }, "Undo"));
+    }
     toastEl.className = "toast " + kind;
     toastEl.hidden = false;
     clearTimeout(toastTimer);
@@ -225,7 +235,23 @@
       h("span", { class: "main title" }, a.label, a.is_default ? " ⭐" : ""),
       h("span", { class: "amount " + (a.balance_minor < 0 ? "neg" : "") }, money(a.balance_minor)))));
 
-    return h("div", {}, seg, stats,
+    const quickInput = h("input", { class: "input", placeholder: "Quick add: 500 food lunch", "aria-label": "Quick add",
+      enterkeyhint: "done", autocomplete: "off" });
+    const quickForm = h("form", { class: "quick", onsubmit: async (e) => {
+      e.preventDefault();
+      const text = quickInput.value.trim();
+      if (!text) return;
+      try {
+        const res = await api("/api/quick", { method: "POST", body: { text } });
+        if (res.draft) { go("add", { draft: res.draft }); return; }
+        haptic(res.warning ? "warning" : "success");
+        toast(res.warning ? warningText(res.warning) : `Added ${res.entry.category_label} ${money(res.entry.amount_minor)}`, res.warning ? "warn" : "");
+        undoAction = res.entry.id;
+        go("home");
+      } catch (err) { haptic("error"); toast(err.message); }
+    } }, quickInput, h("button", { class: "btn", type: "submit" }, "Add"));
+
+    return h("div", {}, seg, quickForm, stats,
       h("h2", {}, "Spending by category"), spending,
       h("h2", {}, "Budgets this month"), budgetList,
       h("h2", {}, "Account balances"), accounts);
@@ -327,19 +353,20 @@
   }
 
   // ---------------------------------------------------------------- Add / Edit
-  async function viewEntry({ entry } = {}) {
+  async function viewEntry({ entry, draft } = {}) {
     const me = state.me;
     const editing = !!entry;
+    const start = entry || draft || {};
     const form = {
-      type: editing ? entry.type : "expense",
-      category: editing ? entry.category : null,
-      account: editing ? entry.account : (me.default_account || "cash"),
-      note: editing ? entry.note : "",
+      type: start.type || "expense",
+      category: start.category || null,
+      account: start.account || me.default_account || "cash",
+      note: start.note || "",
     };
     setBackButton(() => go(editing ? "transactions" : "home"));
 
     const amount = h("input", { class: "input amount-input", inputmode: "decimal", autocomplete: "off",
-      placeholder: "0.00", "aria-label": "Amount", value: editing ? (entry.amount_minor / 100).toFixed(2) : "" });
+      placeholder: "0.00", "aria-label": "Amount", value: start.amount_minor ? (start.amount_minor / 100).toFixed(2) : "" });
     const catBox = h("div", { class: "chips", role: "group", "aria-label": "Category" });
     const drawCats = () => catBox.replaceChildren(...me.categories[form.type].map((c) => h("button", {
       class: "chip", "aria-pressed": String(form.category === c.key),
@@ -407,7 +434,8 @@
       h("div", { class: "field" }, h("label", {}, "Note"), note, counter),
       editing ? h("p", { class: "hint" }, `Logged ${new Date(entry.created_at).toLocaleString()}`) : null,
       editing ? h("button", { class: "btn danger", onclick: remove }, "Delete entry") : null);
-    if (!editing) setTimeout(() => amount.focus(), 50);
+    if (!editing && !draft) setTimeout(() => amount.focus(), 50);
+    if (draft) toast("Pick a category to finish.");
     return view;
   }
 
