@@ -393,7 +393,7 @@ async def leave_flow_for_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         BTN_SETTINGS: settings_view,
         BTN_HELP: help_view,
     }.get(text, start)
-    if view is not start and view is not help_view and view is not history_view:
+    if view is not start and view is not help_view:
         # These screens carry inline buttons, so bring the main keyboard back first.
         await update.message.reply_text("↩️ Unfinished entry dropped.", reply_markup=main_menu_keyboard())
     await view(update, context)
@@ -403,32 +403,10 @@ async def leave_flow_for_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ---------------------------------------------------------------------------
 # History
 # ---------------------------------------------------------------------------
-@require_subscription
 async def history_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    rows = await db_call(transactions.list_recent, update.effective_user.id)
-    if not rows:
-        await update.effective_message.reply_text(
-            f"No transactions yet. Tap {BTN_ADD} or {BTN_ADD_INCOME} to log your first one.",
-            reply_markup=main_menu_keyboard(),
-        )
-        return
-    await update.effective_message.reply_text("📋 <b>Recent transactions:</b>", reply_markup=main_menu_keyboard())
-    for r in rows:
-        date = f"{periods.local_date_of(r['occurred_at']):%d %b}"
-        type_ = r["type"]
-        note = f" — {esc(r['note'])}" if r["note"] else ""
-        if type_ == "transfer":
-            to_name = r.get("to_account_name") or account_label(r["to_account"])
-            text = f"{date}  🔁 {fmt(r['amount_minor'], r['currency'])}  {esc(account_name(r))} → {esc(to_name)}{note}"
-        else:
-            signed = r["amount_minor"] if type_ == "income" else -r["amount_minor"]
-            text = (
-                f"{date}  {fmt(signed, r['currency'], sign=True)}  {esc(label_for(r['category'], type_))} · "
-                f"{esc(account_name(r))}{note}"
-            )
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("✏️ Edit", callback_data=f"edit:{r['id']}"),
-                                    InlineKeyboardButton("🗑️ Delete", callback_data=f"del_{r['id']}")]])
-        await update.effective_message.reply_text(text, reply_markup=kb)
+    from app.bot.history import history_view as paged
+
+    await paged(update, context)
 
 
 async def delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -174,7 +174,7 @@ def test_5_history_labels_and_signs(db):
     async def scenario():
         async with Harness() as h:
             out = await h.text(BTN_HISTORY)
-            assert out.texts == [f"No transactions yet. Tap {BTN_ADD} or {BTN_ADD_INCOME} to log your first one."]
+            assert out.texts[0].startswith(f"📋 No transactions yet. Tap {BTN_ADD} or {BTN_ADD_INCOME}")
             await add_expense(h, amount="12.50")
             await h.text(BTN_ADD_INCOME)
             await h.text("300")
@@ -182,9 +182,10 @@ def test_5_history_labels_and_signs(db):
             await h.tap("incacc_cash")
             await h.tap("skip_income_note")
             out = await h.text(BTN_HISTORY)
-            assert out.texts[0] == "📋 <b>Recent transactions:</b>"
-            assert "+KES 300" in out.texts[1] and "Gift" in out.texts[1]
-            assert f"{MINUS}KES 12.50" in out.texts[2] and "Food" in out.texts[2]
+            lines = out.texts[0].split("\n")
+            assert lines[0] == "📋 <b>All</b> · 1–2, newest first"
+            assert "+KES 300" in lines[2] and "Gift" in lines[2]
+            assert f"{MINUS}KES 12.50" in lines[3] and "Food" in lines[3]
 
     run(scenario())
 
@@ -199,7 +200,7 @@ def test_6_gate_with_underscore_link_and_note_with_markup_characters(db, monkeyp
             assert all(p.get("parse_mode") == "HTML" for _, p in out)
             assert "&lt;b&gt;lunch&lt;/b&gt; * _x_ &amp; co" in out.texts[-1]
             out = await h.text(BTN_HISTORY)
-            assert "&lt;b&gt;lunch" in out.texts[1]
+            assert "&lt;b&gt;lunch" in out.texts[0]   # the whole page is one message now
 
             h.request.member_status = "left"
             membership_cache.clear()  # a member is trusted for 15 min; simulate that passing
@@ -215,7 +216,7 @@ def test_7_history_mid_entry_shows_history(db):
         async with Harness() as h:
             await h.text(BTN_ADD)
             out = await h.text(BTN_HISTORY)
-            assert out.texts[0].startswith("No transactions yet") and out.has_main_keyboard(0)
+            assert out.has_main_keyboard(0) and out.texts[1].startswith("📋 No transactions yet")
             # The abandoned entry is gone: "50" is now a quick entry asking for its category,
             # not the old flow's amount (which would answer "Pick a category:").
             out = await h.text("50")

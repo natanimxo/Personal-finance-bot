@@ -75,7 +75,7 @@ def test_bot_transfer_flow(db):
             assert any(b["callback_data"].startswith("undo:") for b in out.buttons())
             assert accounts.balances_minor(UID) == {"mobile_money": 70000, "cash": 30000}
             out = await h.text(BTN_HISTORY)
-            assert any("🔁 KES 300  📱 M-Pesa → 💵 Cash" in t for t in out.texts)
+            assert "🔁 KES 300 📱 M-Pesa → 💵 Cash" in out.texts[0]
 
     run(scenario())
 

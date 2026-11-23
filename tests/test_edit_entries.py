@@ -13,11 +13,13 @@ def entry(fresh_db):
     return transactions.add_expense(UID, 50, "food", "lunch", account="cash")
 
 
-def test_history_has_edit_next_to_delete(entry):
+def test_history_entry_opens_with_edit_and_delete(entry):
     async def scenario():
         async with Harness() as h:
             out = await h.text(BTN_HISTORY)
-            assert [b["text"] for b in out.buttons(1)] == ["✏️ Edit", "🗑️ Delete"]
+            number = next(b["callback_data"] for b in out.buttons() if b["text"] == "1")
+            out = await h.tap(number)
+            assert [b["text"] for b in out.buttons()][:2] == ["✏️ Edit", "🗑️ Delete"]
 
     run(scenario())
 

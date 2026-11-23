@@ -12,7 +12,7 @@ from telegram.ext import (
 from telegram.warnings import PTBUserWarning
 
 from app.bot import handlers as h
-from app.bot import accounts_ui, edit, quick, recurring_ui, settings_ui
+from app.bot import accounts_ui, edit, history, quick, recurring_ui, settings_ui
 from app.bot.keyboards import (
     BTN_ACCOUNTS, BTN_ADD, BTN_ADD_INCOME, BTN_BUDGETS, BTN_CANCEL, BTN_HELP, BTN_HISTORY, BTN_SETTINGS, BTN_SUMMARY,
     CB_FLOW_CANCEL, FLOW_TEXT, MENU_BUTTONS,
@@ -121,7 +121,10 @@ def register_handlers(app, flow_timeout: int = FLOW_TIMEOUT):
     app.add_handler(CallbackQueryHandler(recurring_ui.repeat_set, pattern=r"^repset:\d+:(weekly|monthly)$"))
 
     app.add_handler(CallbackQueryHandler(recheck_sub_callback, pattern="^recheck_sub$"))
-    app.add_handler(CallbackQueryHandler(h.delete_callback, pattern="^del_"))
+    app.add_handler(CallbackQueryHandler(h.delete_callback, pattern="^del_"))  # buttons on older History messages
+    app.add_handler(CallbackQueryHandler(history.page_callback, pattern=r"^hpg:(all|expense|income|transfer):\d+$"))
+    app.add_handler(CallbackQueryHandler(history.open_entry, pattern=r"^hopen:\d+:\w+:\d+$"))
+    app.add_handler(CallbackQueryHandler(history.delete_from_list, pattern=r"^hdel:\d+:\w+:\d+$"))
     app.add_handler(CallbackQueryHandler(h.summary_callback, pattern="^sum_"))
     app.add_handler(CallbackQueryHandler(h.set_default_account_start, pattern="^set_default_account_start$"))
     app.add_handler(CallbackQueryHandler(h.set_default_account_callback, pattern="^setdefacc_"))
