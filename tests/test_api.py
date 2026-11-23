@@ -300,6 +300,7 @@ def test_mini_app_files_are_served(server):
     page = server.get("/")
     assert page.status_code == 200 and "telegram-web-app.js" in page.text
     assert server.get("/app.js").status_code == 200 and server.get("/styles.css").status_code == 200
+    assert server.get("/app.js").headers["cache-control"] == "no-cache"     # never stale after a deploy
 
 
 def test_healthz(server, monkeypatch):

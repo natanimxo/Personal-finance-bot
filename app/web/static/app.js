@@ -253,8 +253,8 @@
         const res = await api("/api/quick", { method: "POST", body: { text } });
         if (res.draft) { go("add", { draft: res.draft }); return; }
         haptic(res.warning ? "warning" : "success");
+        undoAction = res.entry.id;  // set before toast() so this toast gets the Undo button
         toast(res.warning ? warningText(res.warning) : `Added ${res.entry.category_label} ${money(res.entry.amount_minor)}`, res.warning ? "warn" : "");
-        undoAction = res.entry.id;
         go("home");
       } catch (err) { haptic("error"); toast(err.message); }
     } }, quickInput, h("button", { class: "btn", type: "submit" }, "Add"));
