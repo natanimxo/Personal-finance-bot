@@ -16,7 +16,7 @@ Everything works through buttons — there are no commands to type besides
 | 📊 Summary | Income, expenses, net and savings rate (net ÷ income, shown when there is income) for this week (from Monday) or this month (from the 1st), plus spending by category |
 | 💰 Budgets | Set a monthly limit per expense category. You're warned at 80% and when you go over |
 | 🏦 Accounts | Balance per account and your ⭐ default account (new entries use it without asking). 🔁 Transfer moves money between accounts (From → To → amount): both balances change, but it never counts as income or an expense. ➕ Add, ✏️ Rename and 🗄️ Archive accounts, and ♻️ restore archived ones. A rename or archive keeps the account's history and balance |
-| ⚙️ Settings | Your currency (amounts show as `KES 1,500`; pick from a list or type any 3-letter code), the weekly recap on/off, 🔁 Recurring entries (stop any of them), and 📤 Export CSV. Also `/settings` and `/export` |
+| ⚙️ Settings | Your currency (amounts show as `KES 1,500`; pick from a list or type any 3-letter code), the weekly recap on/off, 🏷️ Categories (add, rename, hide or show again, for expenses and income; a hidden category leaves the pickers but its past entries still count in summaries), 🔁 Recurring entries (stop any of them), and 📤 Export CSV. Also `/settings` and `/export` |
 | ❓ Help | How the flow works |
 
 - **Quick entry:** just send `500 food lunch`, `+20000 salary` or
@@ -26,7 +26,9 @@ Everything works through buttons — there are no commands to type besides
   becomes the note. With no category word you get the category buttons, with
   the amount kept. Every quick entry has an ↩️ Undo button. The Mini App's
   Home screen has the same box.
-- Expense categories: Food, Transport, Bills, Shopping, Fun, Other.
+- Everyone starts with these expense categories: Food, Transport, Bills, Shopping, Fun, Other (income: Salary,
+  Freelance, Business, Gift, Other), and can add their own. Quick entry matches your own category and account
+  names first, then the built-in aliases.
 - Amounts accept `12.50`, `1,200` or `1 200`.
 - Every step has a ❌ Cancel button (or send `/cancel`). Tapping any menu
   button also ends a half-finished entry and opens that screen, and an

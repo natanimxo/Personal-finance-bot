@@ -3,10 +3,10 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from app.bot.handlers import budget_warning_text, entry_line
-from app.bot.keyboards import category_keyboard, esc, income_category_keyboard, main_menu_keyboard
+from app.bot.keyboards import category_keyboard, esc, main_menu_keyboard
 from app.bot.membership import require_subscription
 from app.db import db_call
-from app.services import accounts, prefs, quick_entry, transactions
+from app.services import accounts, categories, prefs, quick_entry, transactions
 from app.services.money import fmt
 from app.services.validation import ValidationError
 
@@ -35,7 +35,8 @@ async def _save(update: Update, context: ContextTypes.DEFAULT_TYPE, parsed: dict
 async def quick_entry_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         own_accounts = await db_call(quick_entry.user_accounts, update.effective_user.id)
-        parsed = quick_entry.parse(update.message.text, accounts=own_accounts)
+        own_categories = await db_call(quick_entry.user_categories, update.effective_user.id)
+        parsed = quick_entry.parse(update.message.text, categories=own_categories, accounts=own_accounts)
     except ValidationError as e:
         await update.message.reply_text(f"{esc(e)} For example: <code>500 food lunch</code>")
         return
@@ -48,7 +49,7 @@ async def quick_entry_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     # No category word: ask for it, with the amount (and any account/note) kept.
     context.user_data["quick"] = data
-    keyboard = (income_category_keyboard if parsed.type == "income" else category_keyboard)("qcat")
+    keyboard = category_keyboard("qcat", await db_call(categories.choices, update.effective_user.id, parsed.type))
     currency = (await db_call(prefs.get_prefs, update.effective_user.id))["currency"]
     shown = fmt(parsed.amount_minor, currency, sign=parsed.type == "income")
     await update.message.reply_text(f"{shown}: which category?", reply_markup=keyboard)

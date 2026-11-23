@@ -31,7 +31,8 @@ def advance(day: date, frequency: str, anchor_day: int) -> date:
 
 def _rule(row):
     rule = dict(row)
-    rule["category_label"] = catalog.label_for(rule["category"], rule["type"])
+    from app.services.categories import label
+    rule["category_label"] = label(rule["user_id"], rule["type"], rule["category"])
     return rule
 
 

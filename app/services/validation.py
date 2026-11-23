@@ -63,12 +63,6 @@ def check_type(type_: str) -> str:
     return type_
 
 
-def check_category(category: str, type_: str) -> str:
-    if category not in dict(catalog.categories_for(type_)):
-        raise ValidationError(f"Unknown {type_} category.", "category")
-    return category
-
-
 def check_note(note) -> str:
     note = (note or "").strip()
     if len(note) > MAX_NOTE_LENGTH:

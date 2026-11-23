@@ -11,8 +11,10 @@ from app import config
 from app.bot.handlers import budget_warning_text
 from app.bot.membership import is_subscribed, touch_user
 from app.db import db_call
-from app.services import accounts, budgets, catalog, periods, prefs, quick_entry, recurring, summaries, transactions
-from app.services.validation import ValidationError, check_category, parse_amount_minor
+from app.services import (
+    accounts, budgets, catalog, categories, periods, prefs, quick_entry, recurring, summaries, transactions,
+)
+from app.services.validation import ValidationError, parse_amount_minor
 from app.web.auth import InitDataError, validate_init_data
 
 logger = logging.getLogger(__name__)
@@ -47,7 +49,7 @@ def entry_json(entry: dict) -> dict:
         "amount_minor": entry["amount_minor"],
         "type": entry["type"],
         "category": entry["category"],
-        "category_label": "🔁 Transfer" if entry["type"] == "transfer" else catalog.label_for(entry["category"], entry["type"]),
+        "category_label": entry["category_name"],
         "account": entry["account"],
         "account_label": entry.get("account_name") or catalog.account_label(entry["account"]),
         "to_account": entry.get("to_account"),
@@ -83,7 +85,7 @@ async def me(user: CurrentUser = Depends(current_user)):
         "user": {"id": user.id, "first_name": user.first_name, "username": user.username},
         "settings": settings,
         "types": catalog_json["types"],
-        "categories": catalog_json["categories"],
+        "categories": await db_call(categories.as_json, user.id),
         # Every account with its label, balance and default flag.
         "accounts": await db_call(accounts.overview, user.id),
         "default_account": await db_call(accounts.get_default_account, user.id),
@@ -222,7 +224,8 @@ async def quick(body: QuickText, request: Request, user: CurrentUser = Depends(c
     """Quick entry, same rules as the bot. Without a category word, returns what was
     understood so the app can open the Add screen with it filled in."""
     try:
-        parsed = quick_entry.parse(body.text, accounts=await db_call(quick_entry.user_accounts, user.id))
+        parsed = quick_entry.parse(body.text, categories=await db_call(quick_entry.user_categories, user.id),
+                                   accounts=await db_call(quick_entry.user_accounts, user.id))
     except ValidationError as e:
         return validation_response(e)
     if parsed is None:
@@ -239,6 +242,43 @@ async def quick(body: QuickText, request: Request, user: CurrentUser = Depends(c
         return validation_response(e)
     await notify_warning(request, user.id, warning)
     return {"entry": entry_json(entry), "draft": None, "warning": warning}
+
+
+class NewCategory(BaseModel):
+    type: str
+    name: str
+
+
+class CategoryEdit(BaseModel):
+    name: Optional[str] = None
+    hidden: Optional[bool] = None
+
+
+@router.get("/categories")
+async def get_categories(user: CurrentUser = Depends(current_user)):
+    return {"categories": await db_call(categories.as_json, user.id)}
+
+
+@router.post("/categories", status_code=201)
+async def add_category(body: NewCategory, user: CurrentUser = Depends(current_user)):
+    try:
+        await db_call(categories.add_category, user.id, body.type, body.name)
+    except ValidationError as e:
+        return validation_response(e)
+    return {"categories": await db_call(categories.as_json, user.id)}
+
+
+@router.patch("/categories/{type_}/{key}")
+async def edit_category(type_: str, key: str, body: CategoryEdit, user: CurrentUser = Depends(current_user)):
+    """Rename, hide (hidden: true) or show again (hidden: false)."""
+    try:
+        if body.name is not None:
+            await db_call(categories.rename_category, user.id, type_, key, body.name)
+        if body.hidden is not None:
+            await db_call(categories.set_hidden, user.id, type_, key, body.hidden)
+    except ValidationError as e:
+        return validation_response(e)
+    return {"categories": await db_call(categories.as_json, user.id)}
 
 
 @router.post("/export")
@@ -276,7 +316,7 @@ async def get_budgets(user: CurrentUser = Depends(current_user)):
 @router.put("/budgets")
 async def put_budget(body: BudgetChange, user: CurrentUser = Depends(current_user)):
     try:
-        check_category(body.category, "expense")
+        await db_call(categories.check_active, user.id, "expense", body.category)
         limit = None if body.limit in (None, "", 0, "0") else parse_amount_minor(body.limit)
         await db_call(budgets.set_limit, user.id, body.category, limit)
     except ValidationError as e:

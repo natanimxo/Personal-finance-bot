@@ -9,7 +9,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from app.bot.handlers import account_name, entry_line
-from app.bot.keyboards import BTN_ADD, BTN_ADD_INCOME, esc, label_for
+from app.bot.keyboards import BTN_ADD, BTN_ADD_INCOME, esc
 from app.bot.membership import require_subscription
 from app.db import db_call
 from app.services import periods, transactions
@@ -26,7 +26,7 @@ def _line(n: int, e) -> str:
                f"{esc(e.get('to_account_name') or e['to_account'])}"
     else:
         signed = e["amount_minor"] if e["type"] == "income" else -e["amount_minor"]
-        what = f"{fmt(signed, e['currency'], sign=True)} {esc(label_for(e['category'], e['type']))}"
+        what = f"{fmt(signed, e['currency'], sign=True)} {esc(e['category_name'])}"
     note = f" — {esc(e['note'])}" if e["note"] else ""
     return f"<b>{n}.</b> {day}  {what}{note}"
 

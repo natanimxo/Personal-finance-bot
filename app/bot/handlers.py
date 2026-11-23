@@ -12,14 +12,14 @@ from telegram.ext import ContextTypes, ConversationHandler
 from app import config
 from app.bot.keyboards import (
     BTN_ACCOUNTS, BTN_ADD, BTN_ADD_INCOME, BTN_BUDGETS, BTN_CANCEL, BTN_HELP, BTN_HISTORY, BTN_SETTINGS, BTN_SUMMARY,
-    ACCOUNTS, CATEGORY_LABELS, INCOME_CATEGORY_LABELS, MINUS,
-    account_keyboard, account_label, cancel_keyboard, category_keyboard, esc, income_category_keyboard,
+    ACCOUNTS, MINUS,
+    account_keyboard, account_label, cancel_keyboard, category_keyboard, esc,
     MAX_NOTE_LENGTH, label_for, main_menu_keyboard, note_keyboard, parse_amount,
 )
 from app.bot.membership import is_subscribed, require_subscription, send_gate, touch_user
 from app.db import db_call
 from app import config
-from app.services import accounts, budgets, periods, prefs, summaries, transactions, users
+from app.services import accounts, budgets, categories, periods, prefs, summaries, transactions, users
 from app.services.money import fmt
 from app.services.backup import run_backup
 from app.services.validation import ValidationError, check_date, to_minor
@@ -32,7 +32,8 @@ ASK_INCOME_AMOUNT, ASK_INCOME_CATEGORY, ASK_INCOME_ACCOUNT, ASK_INCOME_NOTE = ra
 BUDGET_CATEGORY, BUDGET_AMOUNT = range(20, 22)
 
 PENDING_KEYS = ("pending_amount", "pending_category", "pending_account", "used_default", "pending_budget_category",
-                "editing", "pending_day", "day_choice", "flow_type", "account_naming", "transfer")
+                "editing", "pending_day", "day_choice", "flow_type", "account_naming", "transfer",
+                "category_naming")
 
 
 def clear_pending(context: ContextTypes.DEFAULT_TYPE):
@@ -85,14 +86,12 @@ FLOW = {
         "example": "12.50",
         "cat_prefix": "addcat", "acc_prefix": "addacc", "skip": "skip_note",
         "states": (ASK_AMOUNT, ASK_CATEGORY, ASK_ACCOUNT, ASK_NOTE),
-        "labels": CATEGORY_LABELS, "keyboard": category_keyboard,
     },
     "income": {
         "ask": "💵 How much did you receive? (just type the number, e.g. 500)",
         "example": "500",
         "cat_prefix": "inccat", "acc_prefix": "incacc", "skip": "skip_income_note",
         "states": (ASK_INCOME_AMOUNT, ASK_INCOME_CATEGORY, ASK_INCOME_ACCOUNT, ASK_INCOME_NOTE),
-        "labels": INCOME_CATEGORY_LABELS, "keyboard": income_category_keyboard,
     },
 }
 
@@ -116,7 +115,8 @@ async def _flow_amount(update: Update, context: ContextTypes.DEFAULT_TYPE, type_
         await update.message.reply_text(f"{esc(e)} Try again, e.g. {cfg['example']}")
         return cfg["states"][0]
     context.user_data["pending_amount"] = amount
-    await update.message.reply_text("Pick a category:", reply_markup=cfg["keyboard"](cfg["cat_prefix"]))
+    options = await db_call(categories.choices, update.effective_user.id, type_)
+    await update.message.reply_text("Pick a category:", reply_markup=category_keyboard(cfg["cat_prefix"], options))
     return cfg["states"][1]
 
 
@@ -172,7 +172,8 @@ async def _flow_category(update: Update, context: ContextTypes.DEFAULT_TYPE, typ
     await query.answer()
     category_key = query.data.split("_", 1)[1]
     context.user_data["pending_category"] = category_key
-    await query.edit_message_text(f"Category: {esc(cfg['labels'][category_key])}")
+    label = await db_call(categories.label, update.effective_user.id, type_, category_key)
+    await query.edit_message_text(f"Category: {esc(label)}")
 
     default = await db_call(accounts.get_default_account, update.effective_user.id)
     if default:
@@ -219,7 +220,7 @@ def entry_line(entry) -> str:
     signed = entry["amount_minor"] if type_ == "income" else -entry["amount_minor"]
     icon = "💵" if type_ == "income" else "✅"
     text = (
-        f"{icon} Logged {fmt(signed, entry['currency'], sign=True)} — {esc(label_for(entry['category'], type_))} "
+        f"{icon} Logged {fmt(signed, entry['currency'], sign=True)} — {esc(entry['category_name'])} "
         f"({esc(account_name(entry))})"
     )
     day = periods.local_date_of(entry["occurred_at"])
@@ -535,7 +536,9 @@ async def budgets_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = ["💰 <b>Your monthly budgets:</b>"]
     if rows:
         c = (await db_call(prefs.get_prefs, update.effective_user.id))["currency"]
-        lines += [f"• {esc(label_for(r['category'], 'expense'))}: {fmt(round(r['amount'] * 100), c)}" for r in rows]
+        labels = await db_call(categories.names, update.effective_user.id, "expense")
+        lines += [f"• {esc(labels.get(r['category'], label_for(r['category'], 'expense')))}: "
+                  f"{fmt(round(r['amount'] * 100), c)}" for r in rows]
     else:
         lines.append("None set yet.")
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("➕ Set a budget", callback_data="set_budget_start")]])
@@ -552,7 +555,8 @@ async def budget_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     await query.edit_message_text("Pick a category to set a budget for:")
     await context.bot.send_message(
-        chat_id=update.effective_chat.id, text="Choose one:", reply_markup=category_keyboard("budgetcat")
+        chat_id=update.effective_chat.id, text="Choose one:",
+        reply_markup=category_keyboard("budgetcat", await db_call(categories.choices, update.effective_user.id, "expense"))
     )
     return BUDGET_CATEGORY
 
@@ -562,7 +566,8 @@ async def budget_category_chosen(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     category_key = query.data.split("_", 1)[1]
     context.user_data["pending_budget_category"] = category_key
-    await query.edit_message_text(f"Category: {esc(CATEGORY_LABELS[category_key])}")
+    await query.edit_message_text(
+        f"Category: {esc(await db_call(categories.label, update.effective_user.id, 'expense', category_key))}")
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text="Type the monthly limit, e.g. 200",
@@ -580,7 +585,7 @@ async def budget_amount_received(update: Update, context: ContextTypes.DEFAULT_T
     category_key = context.user_data.pop("pending_budget_category")
     await db_call(budgets.set_budget, update.effective_user.id, category_key, amount)
     await update.message.reply_text(
-        f"✅ Budget for {esc(CATEGORY_LABELS[category_key])} set to "
+        f"✅ Budget for {esc(await db_call(categories.label, update.effective_user.id, 'expense', category_key))} set to "
         f"{fmt(to_minor(amount), (await db_call(prefs.get_prefs, update.effective_user.id))['currency'])} a month",
         reply_markup=main_menu_keyboard(),
     )

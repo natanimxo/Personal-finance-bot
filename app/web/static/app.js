@@ -385,7 +385,7 @@
     const drawCats = () => {
       catField.hidden = form.type === "transfer";
       if (form.type === "transfer") return;
-      catBox.replaceChildren(...me.categories[form.type].map((c) => h("button", {
+      catBox.replaceChildren(...me.categories[form.type].filter((c) => !c.hidden || c.key === form.category).map((c) => h("button", {
       class: "chip", "aria-pressed": String(form.category === c.key),
       onclick: () => { form.category = c.key; drawCats(); },
     }, c.label)));
@@ -614,6 +614,47 @@
         } }, "Stop"))) : [h("div", { class: "empty" }, "Nothing repeats yet. Pick Weekly or Monthly when you add an entry.")]));
     };
     loadRecurring().catch((err) => recurringList.replaceChildren(h("div", { class: "empty" }, err.message)));
+
+    // Categories: add, rename, hide / show, per type. Hidden ones keep their past entries in summaries.
+    const categoryBox = h("div");
+    let catType = "expense", renaming = null;
+    const saveCats = async (request, done) => {
+      try {
+        const res = await request();
+        state.me.categories = res.categories;
+        renaming = null;
+        haptic("success");
+        toast(done);
+        drawCategories();
+      } catch (err) { haptic("error"); toast(err.message); }
+    };
+    function drawCategories() {
+      const list = state.me.categories[catType];
+      const rows = list.map((c) => {
+        if (renaming === c.key) {
+          const input = h("input", { class: "input", value: c.label, maxlength: 30, "aria-label": "Category name" });
+          setTimeout(() => input.focus(), 30);
+          return h("div", { class: "row" }, h("div", { class: "inline-edit", style: "padding:0;flex:1" }, input,
+            h("button", { class: "btn", onclick: () => saveCats(() => api(`/api/categories/${catType}/${c.key}`, { method: "PATCH", body: { name: input.value } }), "Renamed") }, "Save"),
+            h("button", { class: "btn secondary", onclick: () => { renaming = null; drawCategories(); } }, "✕")));
+        }
+        return h("div", { class: "row" },
+          h("span", { class: "main title" + (c.hidden ? " hint" : "") }, c.label, c.hidden ? " (hidden)" : ""),
+          c.hidden ? null : h("button", { class: "chip", "aria-label": `Rename ${c.label}`, onclick: () => { renaming = c.key; drawCategories(); } }, "✏️"),
+          h("button", { class: "chip", "aria-label": c.hidden ? `Show ${c.label}` : `Hide ${c.label}`,
+            onclick: () => saveCats(() => api(`/api/categories/${catType}/${c.key}`, { method: "PATCH", body: { hidden: !c.hidden } }), c.hidden ? "Visible again" : "Hidden") },
+            c.hidden ? "👁️" : "🙈"));
+      });
+      const newName = h("input", { class: "input", placeholder: catType === "expense" ? "New category, e.g. 🏠 Rent" : "New category, e.g. 🏦 Interest", maxlength: 30, "aria-label": "New category name" });
+      categoryBox.replaceChildren(
+        h("div", { class: "seg", role: "group", "aria-label": "Category type", style: "margin-bottom:8px" },
+          [["expense", "Expenses"], ["income", "Income"]].map(([v, label]) => h("button", {
+            "aria-pressed": String(catType === v), onclick: () => { catType = v; renaming = null; drawCategories(); } }, label))),
+        h("div", { class: "list" }, rows),
+        h("form", { class: "quick", onsubmit: (e) => { e.preventDefault(); if (newName.value.trim()) saveCats(() => api("/api/categories", { method: "POST", body: { type: catType, name: newName.value } }), "Category added"); } },
+          newName, h("button", { class: "btn", type: "submit" }, "Add")));
+    }
+    drawCategories();
     const options = CURRENCIES.includes(s.currency) ? CURRENCIES : [s.currency, ...CURRENCIES];
     const currency = h("select", { class: "input", "aria-label": "Currency", onchange: (e) => update({ currency: e.target.value }) },
       options.map((c) => h("option", { value: c, selected: c === s.currency }, c)));
@@ -635,6 +676,8 @@
         h("label", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Weekly recap"),
           h("div", { class: "sub" }, "A summary from the bot every Monday morning")),
           h("span", { class: "switch" }, recap, h("span", {})))),
+      h("h2", {}, "Categories"),
+      categoryBox,
       h("h2", {}, "Recurring"),
       recurringList,
       h("h2", {}, "Data"),

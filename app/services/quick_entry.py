@@ -64,17 +64,26 @@ def _norm(word: str) -> str:
     return word.lower().strip(".,;:!?")
 
 
+def _variants(name: str):
+    plain = re.sub(r"[^\w\s-]", "", name.lower()).strip()
+    words = plain.replace("_", " ").split()
+    return [v for v in {plain, plain.replace("-", ""), *words, *(w.replace("-", "") for w in words)} if v]
+
+
 def _names_index(options):
-    """{"food": "food", "lunch": "food", ...} from {key: [names...]} (first key wins).
+    """{"food": "food", "lunch": "food", ...} from {key: [name, aliases...]}.
+    Keys and names (the first entry: what the user called it) win over aliases, so
+    a category the user named "Rent" beats the built-in alias rent -> Bills.
     Names may carry emoji ("📱 M-Pesa"); multi-word names also match by each word."""
     index = {}
-    for key, names in options.items():
-        for name in [key, *names]:
-            plain = re.sub(r"[^\w\s-]", "", name.lower()).strip()
-            words = plain.replace("_", " ").split()
-            for variant in {plain, plain.replace("-", ""), *words, *(w.replace("-", "") for w in words)}:
-                if variant:
-                    index.setdefault(variant, key)
+    for key, names in options.items():          # pass 1: keys and the user's own names
+        for name in [key, *names[:1]]:
+            for variant in _variants(name):
+                index.setdefault(variant, key)
+    for key, names in options.items():          # pass 2: aliases
+        for name in names[1:]:
+            for variant in _variants(name):
+                index.setdefault(variant, key)
     return index
 
 
@@ -127,3 +136,11 @@ def parse(text: str, categories: dict = None, accounts: dict = None) -> Optional
     validation.check_note(note)
     return Parsed(amount_minor=amount_minor, type=type_, category=category, account=account, note=note,
                   unmatched=note_words, day=day)
+
+
+def user_categories(user_id: int) -> dict:
+    """{"expense": {key: [name, aliases...]}, "income": {...}} for this user's visible categories."""
+    from app.services import categories
+
+    return {t: {key: [name, *CATEGORY_ALIASES[t].get(key, [])] for key, name in categories.choices(user_id, t)}
+            for t in ("expense", "income")}

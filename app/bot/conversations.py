@@ -12,7 +12,7 @@ from telegram.ext import (
 from telegram.warnings import PTBUserWarning
 
 from app.bot import handlers as h
-from app.bot import accounts_ui, edit, history, quick, recurring_ui, settings_ui
+from app.bot import accounts_ui, categories_ui, edit, history, quick, recurring_ui, settings_ui
 from app.bot.keyboards import (
     BTN_ACCOUNTS, BTN_ADD, BTN_ADD_INCOME, BTN_BUDGETS, BTN_CANCEL, BTN_HELP, BTN_HISTORY, BTN_SETTINGS, BTN_SUMMARY,
     CB_FLOW_CANCEL, FLOW_TEXT, MENU_BUTTONS,
@@ -42,6 +42,7 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 CallbackQueryHandler(accounts_ui.name_start, pattern=r"^acc:(add|ren:\w+)$"),
                 CallbackQueryHandler(accounts_ui.transfer_start, pattern=r"^acc:transfer$"),
                 CallbackQueryHandler(settings_ui.other_currency_start, pattern=r"^cur:other$"),
+                CallbackQueryHandler(categories_ui.name_start, pattern=r"^cat:(add:(expense|income)|ren:(expense|income):\w+)$"),
             ],
             states={
                 h.ASK_AMOUNT: [MessageHandler(FLOW_TEXT, h.add_amount_received)],
@@ -69,6 +70,7 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 accounts_ui.TRANSFER_TO: [CallbackQueryHandler(accounts_ui.transfer_to, pattern=r"^trt:\w+$")],
                 accounts_ui.TRANSFER_AMOUNT: [MessageHandler(FLOW_TEXT, accounts_ui.transfer_amount)],
                 settings_ui.SETTINGS_CURRENCY: [MessageHandler(FLOW_TEXT, settings_ui.other_currency_received)],
+                categories_ui.CATEGORY_NAME: [MessageHandler(FLOW_TEXT, categories_ui.name_received)],
                 ConversationHandler.TIMEOUT: [
                     MessageHandler(filters.ALL, h.conversation_timeout),
                     CallbackQueryHandler(h.conversation_timeout),
@@ -116,6 +118,9 @@ def register_handlers(app, flow_timeout: int = FLOW_TIMEOUT):
     app.add_handler(CallbackQueryHandler(settings_ui.export_callback, pattern=r"^set:export$"))
     app.add_handler(CommandHandler("export", settings_ui.export_command))
     app.add_handler(CallbackQueryHandler(recurring_ui.recurring_view, pattern=r"^set:recurring$"))
+    app.add_handler(CallbackQueryHandler(categories_ui.list_view, pattern=r"^cat:list:(expense|income)$"))
+    app.add_handler(CallbackQueryHandler(categories_ui.pick, pattern=r"^cat:pick:(ren|hide|show):(expense|income)$"))
+    app.add_handler(CallbackQueryHandler(categories_ui.hide_or_show, pattern=r"^cat:(hide|show):(expense|income):\w+$"))
     app.add_handler(CallbackQueryHandler(recurring_ui.recurring_delete, pattern=r"^repdel:\d+$"))
     app.add_handler(CallbackQueryHandler(recurring_ui.repeat_menu, pattern=r"^rep:\d+$"))
     app.add_handler(CallbackQueryHandler(recurring_ui.repeat_set, pattern=r"^repset:\d+:(weekly|monthly)$"))

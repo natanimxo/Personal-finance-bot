@@ -53,7 +53,8 @@ def warning_for(user_id: int, category: str, now: datetime = None):
     else:
         return None
     from app.services.prefs import get_prefs
-    return {"level": level, "category": category, "label": catalog.label_for(category, "expense"),
+    from app.services.categories import label
+    return {"level": level, "category": category, "label": label(user_id, "expense", category),
             "spent_minor": spent, "limit_minor": limit, "percent": round(pct),
             "currency": get_prefs(user_id)["currency"]}
 
@@ -68,9 +69,13 @@ def overview(user_id: int, now: datetime = None):
             "SELECT category, SUM(amount_minor) AS total FROM expenses "
             "WHERE user_id = ? AND type = 'expense' AND occurred_at >= ? GROUP BY category",
             (user_id, to_db(since)))}
+    from app.services.categories import list_categories
     items = []
-    for key, label in catalog.CATEGORIES:
+    for c in list_categories(user_id, "expense", include_hidden=True):
+        key, label = c["key"], c["name"]
         limit, used = limits.get(key), spent.get(key, 0) or 0
+        if c["hidden"] and not limit and not used:
+            continue  # a hidden category only shows while it still has a limit or spending
         items.append({"category": key, "label": label, "limit_minor": limit, "spent_minor": used,
                       "percent": round(used / limit * 100) if limit else None})
     return items

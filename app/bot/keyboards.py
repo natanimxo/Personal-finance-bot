@@ -76,13 +76,9 @@ def account_keyboard(prefix: str, options, default: str = None, with_cancel: boo
     return _grid(buttons, with_cancel)
 
 
-def category_keyboard(prefix: str):
-    buttons = [InlineKeyboardButton(label, callback_data=f"{prefix}_{key}") for key, label in CATEGORIES]
-    return _grid(buttons, with_cancel=True)
-
-
-def income_category_keyboard(prefix: str):
-    buttons = [InlineKeyboardButton(label, callback_data=f"{prefix}_{key}") for key, label in INCOME_CATEGORIES]
+def category_keyboard(prefix: str, options):
+    """Picker over the user's categories, `options` = [(key, name)]."""
+    buttons = [InlineKeyboardButton(label, callback_data=f"{prefix}_{key}") for key, label in options]
     return _grid(buttons, with_cancel=True)
 
 

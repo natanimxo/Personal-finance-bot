@@ -12,7 +12,7 @@ import csv
 import io
 
 from app.db import get_conn
-from app.services import accounts, catalog, periods, prefs
+from app.services import accounts, catalog, categories, periods, prefs
 
 HEADER = ["Date", "Type", "Category", "Account", "To account", "Amount", "Currency", "Note"]
 
@@ -31,6 +31,7 @@ def _amount(minor: int) -> str:
 def csv_bytes(user_id: int) -> bytes:
     currency = prefs.get_prefs(user_id)["currency"]
     names = accounts.names(user_id)
+    labels = {t: categories.names(user_id, t) for t in catalog.TYPES}
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT occurred_at, type, category, account, to_account, amount_minor, note FROM expenses "
@@ -44,7 +45,7 @@ def csv_bytes(user_id: int) -> bytes:
         if r["type"] == "transfer":
             category, signed = "Transfer", r["amount_minor"]
         else:
-            category = catalog.label_for(r["category"], r["type"])
+            category = labels[r["type"]].get(r["category"]) or catalog.label_for(r["category"], r["type"])
             signed = r["amount_minor"] if r["type"] == "income" else -r["amount_minor"]
         writer.writerow([
             periods.local_date_of(r["occurred_at"]).isoformat(),

@@ -4,14 +4,16 @@ from datetime import date, datetime, timedelta, timezone
 
 from app import config
 from app.db import get_conn
-from app.services import accounts, budgets, periods, validation
+from app.services import accounts, budgets, catalog, categories, periods, validation
 
 COLUMNS = ("id, user_id, amount_minor, category, note, created_at, occurred_at, type, account, to_account, "
            "(SELECT a.name FROM accounts a WHERE a.user_id = expenses.user_id AND a.key = expenses.account) "
            "AS account_name, "
            "(SELECT a.name FROM accounts a WHERE a.user_id = expenses.user_id AND a.key = expenses.to_account) "
            "AS to_account_name, "
-           "(SELECT p.currency FROM user_prefs p WHERE p.user_id = expenses.user_id) AS currency")
+           "(SELECT p.currency FROM user_prefs p WHERE p.user_id = expenses.user_id) AS currency, "
+           "(SELECT c.name FROM categories c WHERE c.user_id = expenses.user_id AND c.type = expenses.type "
+           "AND c.key = expenses.category) AS category_name")
 TRANSFER = "transfer"
 PAGE_SIZE = 30
 
@@ -22,6 +24,10 @@ def _entry(row):
     entry = dict(row)
     entry["amount"] = entry["amount_minor"] / 100  # convenience for display code
     entry["currency"] = entry.get("currency") or config.DEFAULT_CURRENCY
+    if entry["type"] == TRANSFER:
+        entry["category_name"] = "🔁 Transfer"
+    elif not entry.get("category_name"):
+        entry["category_name"] = catalog.label_for(entry["category"], entry["type"])
     return entry
 
 
@@ -76,7 +82,7 @@ def add_entry(user_id: int, amount_minor: int, type_: str, category: str, accoun
     Returns (entry, budget_warning or None)."""
     day = validation.check_date(day)
     validation.check_type(type_)
-    validation.check_category(category, type_)
+    categories.check_active(user_id, type_, category)
     accounts.check_active(user_id, account)
     note = validation.check_note(note)
     if not isinstance(amount_minor, int) or amount_minor <= 0 or amount_minor > validation.MAX_AMOUNT * 100:
@@ -116,7 +122,8 @@ def update_entry(user_id: int, entry_id: int, **changes):
             raise validation.ValidationError("Pick two different accounts.", "to_account")
     else:
         validation.check_type(merged["type"])
-        validation.check_category(merged["category"], merged["type"])
+        if (merged["category"], merged["type"]) != (current["category"], current["type"]):
+            categories.check_active(user_id, merged["type"], merged["category"])  # a hidden one may stay
         merged["to_account"] = None
     if merged["account"] != current["account"]:  # an archived account may stay on its old entries
         accounts.check_active(user_id, merged["account"])

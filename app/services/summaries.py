@@ -54,9 +54,11 @@ def period_bounds(period: str = "week", date_from: str = None, date_to: str = No
 def summary(user_id: int, period: str = "week", date_from: str = None, date_to: str = None, now: datetime = None):
     start, end, name = period_bounds(period, date_from, date_to, now)
     income, expense = totals_minor(user_id, start, end)
+    from app.services.categories import names
+    labels = names(user_id, "expense")
     categories = by_category_minor(user_id, start, "expense", end)
-    for c in categories:
-        c["label"] = catalog.label_for(c["category"], "expense")
+    for c in categories:  # hidden categories included: their entries still count
+        c["label"] = labels.get(c["category"]) or catalog.label_for(c["category"], "expense")
     from app.services.prefs import get_prefs
     return {
         "currency": get_prefs(user_id)["currency"],

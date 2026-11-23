@@ -16,7 +16,7 @@ from telegram.ext import ContextTypes
 from app.db import db_call
 from app.services import periods, prefs, summaries, users
 from app.services.money import fmt
-from app.services.catalog import CATEGORY_LABELS
+from app.services import categories
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def recap_text(user_id: int, start: datetime, end: datetime):
     if rows:
         lines += ["", "<b>Top expense categories:</b>"]
         for r in rows:
-            label = CATEGORY_LABELS.get(r["category"], f"📦 {r['category']}")
+            label = categories.label(user_id, "expense", r["category"])
             lines.append(f"• {html.escape(label, quote=False)}: {m(r['total'])} ({r['cnt']}x)")
     return "\n".join(lines)
 
