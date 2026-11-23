@@ -241,6 +241,15 @@ async def quick(body: QuickText, request: Request, user: CurrentUser = Depends(c
     return {"entry": entry_json(entry), "draft": None, "warning": warning}
 
 
+@router.post("/export")
+async def export_csv(request: Request, user: CurrentUser = Depends(current_user)):
+    """The bot sends the CSV into the user's chat (Mini Apps can't reliably download files)."""
+    from app.bot.settings_ui import send_export
+
+    await send_export(request.app.state.application.bot, user.id)
+    return {"sent": True}
+
+
 @router.get("/recurring")
 async def list_recurring(user: CurrentUser = Depends(current_user)):
     return {"recurring": await db_call(recurring.list_rules, user.id)}

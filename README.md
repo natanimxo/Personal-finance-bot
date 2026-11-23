@@ -16,7 +16,7 @@ Everything works through buttons — there are no commands to type besides
 | 📊 Summary | Income, expenses, net and savings rate (net ÷ income, shown when there is income) for this week (from Monday) or this month (from the 1st), plus spending by category |
 | 💰 Budgets | Set a monthly limit per expense category. You're warned at 80% and when you go over |
 | 🏦 Accounts | Balance per account and your ⭐ default account (new entries use it without asking). 🔁 Transfer moves money between accounts (From → To → amount): both balances change, but it never counts as income or an expense. ➕ Add, ✏️ Rename and 🗄️ Archive accounts, and ♻️ restore archived ones. A rename or archive keeps the account's history and balance |
-| ⚙️ Settings | Your currency (amounts show as `KES 1,500`; pick from a list or type any 3-letter code), the weekly recap on/off, and 🔁 Recurring entries (stop any of them). Also `/settings` |
+| ⚙️ Settings | Your currency (amounts show as `KES 1,500`; pick from a list or type any 3-letter code), the weekly recap on/off, 🔁 Recurring entries (stop any of them), and 📤 Export CSV. Also `/settings` and `/export` |
 | ❓ Help | How the flow works |
 
 - **Quick entry:** just send `500 food lunch`, `+20000 salary` or
@@ -33,6 +33,11 @@ Everything works through buttons — there are no commands to type besides
   unfinished entry times out after 10 minutes.
 - Every **Monday at 08:00** (`APP_TIMEZONE`, default Africa/Nairobi) each
   subscribed user who logged something gets a recap of the previous Monday–Sunday.
+- **CSV export:** 📤 in ⚙️ Settings (bot or Mini App) or `/export`. The bot
+  sends the file into the chat. It has one row per entry (date it happened,
+  type, category, account, to-account for transfers, amount, currency, note),
+  UTF-8 with a BOM, ISO dates and plain numbers (expenses negative), so it opens
+  correctly in Excel and Google Sheets.
 - **Recurring entries:** open an entry (📋 History → ✏️ Edit → 🔁 Repeat) and
   pick Weekly or Monthly, or choose Repeat when adding one in the Mini App.
   Every day at **06:00** (`APP_TIMEZONE`) the bot logs what is due, each copy

@@ -24,6 +24,7 @@ async def settings_screen(user_id: int):
         [InlineKeyboardButton("💱 Change currency", callback_data="set:currency")],
         [InlineKeyboardButton(f"🔔 Turn weekly recap {'off' if p['recap_enabled'] else 'on'}", callback_data="set:recap")],
         [InlineKeyboardButton("🔁 Recurring entries", callback_data="set:recurring")],
+        [InlineKeyboardButton("📤 Export CSV", callback_data="set:export")],
     ])
     return text, kb
 
@@ -90,3 +91,26 @@ async def other_currency_received(update: Update, context: ContextTypes.DEFAULT_
     text, kb = await settings_screen(update.effective_user.id)
     await update.message.reply_text(text, reply_markup=kb)
     return ConversationHandler.END
+
+
+async def send_export(bot, user_id: int):
+    """Send the user's CSV into their chat (also used by the Mini App)."""
+    import io
+
+    from app.services import export
+
+    data = await db_call(export.csv_bytes, user_id)
+    await bot.send_document(
+        chat_id=user_id, document=io.BytesIO(data), filename=export.filename(),
+        caption="📤 All your entries. Opens in Excel and Google Sheets.",
+    )
+
+
+async def export_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer("Preparing your file…")
+    await send_export(context.bot, update.effective_user.id)
+
+
+@require_subscription
+async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_export(context.bot, update.effective_user.id)

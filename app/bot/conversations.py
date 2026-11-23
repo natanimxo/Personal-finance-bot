@@ -113,6 +113,8 @@ def register_handlers(app, flow_timeout: int = FLOW_TIMEOUT):
     app.add_handler(CallbackQueryHandler(settings_ui.currency_chosen, pattern=r"^cur:[A-Z]{3}$"))
     app.add_handler(CallbackQueryHandler(settings_ui.toggle_recap, pattern=r"^set:recap$"))
     app.add_handler(CallbackQueryHandler(settings_ui.back, pattern=r"^set:back$"))
+    app.add_handler(CallbackQueryHandler(settings_ui.export_callback, pattern=r"^set:export$"))
+    app.add_handler(CommandHandler("export", settings_ui.export_command))
     app.add_handler(CallbackQueryHandler(recurring_ui.recurring_view, pattern=r"^set:recurring$"))
     app.add_handler(CallbackQueryHandler(recurring_ui.recurring_delete, pattern=r"^repdel:\d+$"))
     app.add_handler(CallbackQueryHandler(recurring_ui.repeat_menu, pattern=r"^rep:\d+$"))

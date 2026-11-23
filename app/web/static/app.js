@@ -639,7 +639,13 @@
       recurringList,
       h("h2", {}, "Data"),
       h("div", { class: "list" }, h("div", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Export CSV"),
-        h("div", { class: "sub" }, "Coming soon")), h("button", { class: "btn secondary", disabled: true }, "Export"))),
+        h("div", { class: "sub" }, "All your entries, sent to your Telegram chat")),
+        h("button", { class: "btn secondary", onclick: async (e) => {
+          e.target.disabled = true;
+          try { await api("/api/export", { method: "POST" }); haptic("success"); toast("Sent to your Telegram chat"); }
+          catch (err) { toast(err.message); }
+          finally { e.target.disabled = false; }
+        } }, "📤 Export"))),
       h("p", { class: "hint center", style: "margin-top:24px" }, `Signed in as ${state.me.user.first_name || "you"}`));
   }
 
