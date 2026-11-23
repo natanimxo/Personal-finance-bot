@@ -5,9 +5,12 @@ from datetime import date, datetime, timedelta, timezone
 from app.db import get_conn
 from app.services import accounts, budgets, periods, validation
 
-COLUMNS = ("id, user_id, amount_minor, category, note, created_at, occurred_at, type, account, "
+COLUMNS = ("id, user_id, amount_minor, category, note, created_at, occurred_at, type, account, to_account, "
            "(SELECT a.name FROM accounts a WHERE a.user_id = expenses.user_id AND a.key = expenses.account) "
-           "AS account_name")
+           "AS account_name, "
+           "(SELECT a.name FROM accounts a WHERE a.user_id = expenses.user_id AND a.key = expenses.to_account) "
+           "AS to_account_name")
+TRANSFER = "transfer"
 PAGE_SIZE = 30
 
 
@@ -28,6 +31,31 @@ def get_entry(user_id: int, entry_id: int):
         return _entry(conn.execute(
             f"SELECT {COLUMNS} FROM expenses WHERE id = ? AND user_id = ?", (entry_id, user_id)
         ).fetchone())
+
+
+def _check_amount(amount_minor):
+    if not isinstance(amount_minor, int) or amount_minor <= 0 or amount_minor > validation.MAX_AMOUNT * 100:
+        raise validation.ValidationError("Invalid amount.", "amount")
+
+
+def add_transfer(user_id: int, amount_minor: int, from_account: str, to_account: str, note: str = "", day=None):
+    """Move money between two of the user's accounts. Never income or expense."""
+    day = validation.check_date(day)
+    _check_amount(amount_minor)
+    accounts.check_active(user_id, from_account)
+    accounts.check_active(user_id, to_account)
+    if from_account == to_account:
+        raise validation.ValidationError("Pick two different accounts.", "to_account")
+    note = validation.check_note(note)
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO expenses (user_id, amount, amount_minor, category, note, created_at, occurred_at, type, "
+            "account, to_account) VALUES (?, ?, ?, 'transfer', ?, ?, ?, 'transfer', ?, ?)",
+            (user_id, amount_minor / 100, amount_minor, note, _now_db(), periods.occurred_at_for(day),
+             from_account, to_account),
+        )
+        entry_id = cur.lastrowid
+    return get_entry(user_id, entry_id)  # after the commit, so the new row is visible
 
 
 def _warning(user_id: int, entry):
@@ -74,10 +102,19 @@ def update_entry(user_id: int, entry_id: int, **changes):
         day = validation.check_date(day)
         if day != periods.local_date_of(occurred_at):
             occurred_at = periods.occurred_at_for(day)
-    merged = {k: current[k] for k in ("amount_minor", "type", "category", "account", "note")}
+    merged = {k: current[k] for k in ("amount_minor", "type", "category", "account", "to_account", "note")}
     merged.update({k: v for k, v in changes.items() if v is not None})
-    validation.check_type(merged["type"])
-    validation.check_category(merged["category"], merged["type"])
+    if (current["type"] == TRANSFER) != (merged["type"] == TRANSFER):
+        raise validation.ValidationError("A transfer can't become income or an expense (or the other way).", "type")
+    if merged["type"] == TRANSFER:
+        if merged["to_account"] != current["to_account"]:
+            accounts.check_active(user_id, merged["to_account"])
+        if merged["to_account"] == merged["account"]:
+            raise validation.ValidationError("Pick two different accounts.", "to_account")
+    else:
+        validation.check_type(merged["type"])
+        validation.check_category(merged["category"], merged["type"])
+        merged["to_account"] = None
     if merged["account"] != current["account"]:  # an archived account may stay on its old entries
         accounts.check_active(user_id, merged["account"])
     merged["note"] = validation.check_note(merged["note"])
@@ -86,10 +123,10 @@ def update_entry(user_id: int, entry_id: int, **changes):
         raise validation.ValidationError("Invalid amount.", "amount")
     with get_conn() as conn:
         conn.execute(
-            "UPDATE expenses SET amount = ?, amount_minor = ?, type = ?, category = ?, account = ?, note = ?, "
-            "occurred_at = ? WHERE id = ? AND user_id = ?",
+            "UPDATE expenses SET amount = ?, amount_minor = ?, type = ?, category = ?, account = ?, to_account = ?, "
+            "note = ?, occurred_at = ? WHERE id = ? AND user_id = ?",
             (amount_minor / 100, amount_minor, merged["type"], merged["category"], merged["account"],
-             merged["note"], occurred_at, entry_id, user_id),
+             merged["to_account"], merged["note"], occurred_at, entry_id, user_id),
         )
     entry = get_entry(user_id, entry_id)
     return entry, _warning(user_id, entry)
@@ -128,11 +165,13 @@ def list_entries(user_id: int, cursor: str = None, type_: str = None, category: 
         occurred_at, entry_id = parse_cursor(cursor)
         where.append("(occurred_at < ? OR (occurred_at = ? AND id < ?))"); args += [occurred_at, occurred_at, entry_id]
     if type_:
-        where.append("type = ?"); args.append(validation.check_type(type_))
+        if type_ != TRANSFER:
+            validation.check_type(type_)
+        where.append("type = ?"); args.append(type_)
     if category:
         where.append("category = ?"); args.append(category)
     if account:
-        where.append("account = ?"); args.append(account)
+        where.append("(account = ? OR to_account = ?)"); args += [account, account]
     if date_from:
         where.append("occurred_at >= ?"); args.append(_day_start(date_from))
     if date_to:

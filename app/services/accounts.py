@@ -159,14 +159,20 @@ def set_default_account(user_id: int, account: str):
 
 
 def balances_minor(user_id: int) -> dict:
-    """{account: income minus expenses, in cents}, all time."""
+    """{account: income - expenses - transfers out + transfers in, in cents}, all time."""
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT account, SUM(CASE WHEN type = 'income' THEN amount_minor ELSE -amount_minor END) AS total "
-            "FROM expenses WHERE user_id = ? GROUP BY account",
-            (user_id,),
+            "SELECT account AS key, SUM(CASE WHEN type = 'income' THEN amount_minor ELSE -amount_minor END) AS total "
+            "FROM expenses WHERE user_id = ? GROUP BY account "
+            "UNION ALL "
+            "SELECT to_account AS key, SUM(amount_minor) AS total "
+            "FROM expenses WHERE user_id = ? AND type = 'transfer' GROUP BY to_account",
+            (user_id, user_id),
         ).fetchall()
-    return {r["account"]: r["total"] for r in rows}
+    balances = {}
+    for r in rows:
+        balances[r["key"]] = balances.get(r["key"], 0) + r["total"]
+    return balances
 
 
 def overview(user_id: int, include_archived: bool = True):

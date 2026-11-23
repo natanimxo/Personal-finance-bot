@@ -30,7 +30,7 @@ ASK_INCOME_AMOUNT, ASK_INCOME_CATEGORY, ASK_INCOME_ACCOUNT, ASK_INCOME_NOTE = ra
 BUDGET_CATEGORY, BUDGET_AMOUNT = range(20, 22)
 
 PENDING_KEYS = ("pending_amount", "pending_category", "pending_account", "used_default", "pending_budget_category",
-                "editing", "pending_day", "day_choice", "flow_type", "account_naming")
+                "editing", "pending_day", "day_choice", "flow_type", "account_naming", "transfer")
 
 
 def clear_pending(context: ContextTypes.DEFAULT_TYPE):
@@ -203,6 +203,15 @@ def account_name(entry) -> str:
 
 
 def entry_line(entry) -> str:
+    if entry["type"] == "transfer":
+        to_name = entry.get("to_account_name") or account_label(entry["to_account"])
+        text = f"🔁 Moved {entry['amount']:.2f} — {esc(account_name(entry))} → {esc(to_name)}"
+        day = periods.local_date_of(entry["occurred_at"])
+        if day != periods.today():
+            text += f"\n📅 {day:%a %d %b %Y}"
+        if entry["note"]:
+            text += f"\n📝 {esc(entry['note'])}"
+        return text
     type_ = entry["type"]
     sign = "+" if type_ == "income" else MINUS
     icon = "💵" if type_ == "income" else "✅"
@@ -400,12 +409,16 @@ async def history_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for r in rows:
         date = f"{periods.local_date_of(r['occurred_at']):%d %b}"
         type_ = r["type"]
-        sign = "+" if type_ == "income" else MINUS
         note = f" — {esc(r['note'])}" if r["note"] else ""
-        text = (
-            f"{date}  {sign}{r['amount']:.2f}  {esc(label_for(r['category'], type_))} · "
-            f"{esc(account_name(r))}{note}"
-        )
+        if type_ == "transfer":
+            to_name = r.get("to_account_name") or account_label(r["to_account"])
+            text = f"{date}  🔁 {r['amount']:.2f}  {esc(account_name(r))} → {esc(to_name)}{note}"
+        else:
+            sign = "+" if type_ == "income" else MINUS
+            text = (
+                f"{date}  {sign}{r['amount']:.2f}  {esc(label_for(r['category'], type_))} · "
+                f"{esc(account_name(r))}{note}"
+            )
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("✏️ Edit", callback_data=f"edit:{r['id']}"),
                                     InlineKeyboardButton("🗑️ Delete", callback_data=f"del_{r['id']}")]])
         await update.effective_message.reply_text(text, reply_markup=kb)
@@ -489,7 +502,8 @@ async def accounts_screen(user_id: int):
     else:
         lines.append("\nSet a default account and new entries skip the account step.")
     buttons = [
-        [InlineKeyboardButton("⭐ Set default", callback_data="set_default_account_start")],
+        [InlineKeyboardButton("🔁 Transfer", callback_data="acc:transfer"),
+         InlineKeyboardButton("⭐ Set default", callback_data="set_default_account_start")],
         [InlineKeyboardButton("➕ Add", callback_data="acc:add"),
          InlineKeyboardButton("✏️ Rename", callback_data="acc:ren"),
          InlineKeyboardButton("🗄️ Archive", callback_data="acc:arch")],

@@ -22,11 +22,12 @@ from app.services.validation import ValidationError, check_date, to_minor
 EDIT_TEXT = 30
 
 
-def edit_menu(entry_id: int):
+def edit_menu(entry_id: int, is_transfer: bool = False):
+    second = (InlineKeyboardButton("➡️ To", callback_data=f"edto:{entry_id}") if is_transfer
+              else InlineKeyboardButton("🏷️ Category", callback_data=f"edcat:{entry_id}"))
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("💵 Amount", callback_data=f"edf:amount:{entry_id}"),
-         InlineKeyboardButton("🏷️ Category", callback_data=f"edcat:{entry_id}")],
-        [InlineKeyboardButton("🏦 Account", callback_data=f"edacc:{entry_id}"),
+        [InlineKeyboardButton("💵 Amount", callback_data=f"edf:amount:{entry_id}"), second],
+        [InlineKeyboardButton("⬅️ From" if is_transfer else "🏦 Account", callback_data=f"edacc:{entry_id}"),
          InlineKeyboardButton("📅 Date", callback_data=f"eddate:{entry_id}")],
         [InlineKeyboardButton("📝 Note", callback_data=f"edf:note:{entry_id}")],
         [InlineKeyboardButton("✅ Done", callback_data=f"eddone:{entry_id}")],
@@ -57,7 +58,7 @@ async def edit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     entry = await _load(update, entry_id)
     if entry:
         await query.answer()
-        await query.edit_message_text(editing_text(entry), reply_markup=edit_menu(entry_id))
+        await query.edit_message_text(editing_text(entry), reply_markup=edit_menu(entry_id, entry["type"] == "transfer"))
 
 
 async def edit_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -94,6 +95,19 @@ async def edit_account_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_reply_markup(reply_markup=kb)
 
 
+async def edit_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    entry_id = int(query.data.split(":")[1])
+    entry = await _load(update, entry_id)
+    if not entry:
+        return
+    await query.answer()
+    options = [o for o in await db_call(accounts.choices, update.effective_user.id) if o[0] != entry["account"]]
+    kb = choice_keyboard([InlineKeyboardButton(("• " if k == entry["to_account"] else "") + label,
+                                               callback_data=f"edsetto:{entry_id}:{k}") for k, label in options], entry_id)
+    await query.edit_message_reply_markup(reply_markup=kb)
+
+
 async def edit_date_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     entry_id = int(query.data.split(":")[1])
@@ -115,7 +129,7 @@ async def edit_set_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("That entry was deleted.", show_alert=True)
         return
     await query.answer("Saved")
-    await query.edit_message_text(text, reply_markup=edit_menu(entry["id"]))
+    await query.edit_message_text(text, reply_markup=edit_menu(entry["id"], entry["type"] == "transfer"))
 
 
 async def _apply(update: Update, entry_id: int, **changes):
@@ -129,7 +143,7 @@ async def _apply(update: Update, entry_id: int, **changes):
 async def edit_set_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     kind, entry_id, key = query.data.split(":", 2)
-    field = "category" if kind == "edsetcat" else "account"
+    field = {"edsetcat": "category", "edsetacc": "account", "edsetto": "to_account"}[kind]
     try:
         entry, text = await _apply(update, int(entry_id), **{field: key})
     except ValidationError as e:
@@ -139,7 +153,7 @@ async def edit_set_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("That entry was deleted.", show_alert=True)
         return
     await query.answer("Saved")
-    await query.edit_message_text(text, reply_markup=edit_menu(entry["id"]))
+    await query.edit_message_text(text, reply_markup=edit_menu(entry["id"], entry["type"] == "transfer"))
 
 
 # --- typed fields (amount, note): a conversation step ---------------------------------
@@ -181,5 +195,5 @@ async def edit_text_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("That entry was deleted.", reply_markup=main_menu_keyboard())
         return ConversationHandler.END
     await update.message.reply_text("👍", reply_markup=main_menu_keyboard())
-    await update.message.reply_text(message, reply_markup=edit_menu(entry["id"]))
+    await update.message.reply_text(message, reply_markup=edit_menu(entry["id"], entry["type"] == "transfer"))
     return ConversationHandler.END

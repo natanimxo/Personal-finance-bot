@@ -317,9 +317,9 @@
     }
 
     const typeSeg = h("div", { class: "seg", role: "group", "aria-label": "Type" },
-      [["", "All"], ["expense", "Expenses"], ["income", "Income"]].map(([v, label]) => h("button", {
+      [["", "All"], ["expense", "Expenses"], ["income", "Income"], ["transfer", "Transfers"]].map(([v, label]) => h("button", {
         "aria-pressed": String(filters.type === v),
-        onclick: () => { filters.type = v; if (v && filters.category && !me.categories[v].some((c) => c.key === filters.category)) filters.category = ""; go("transactions"); },
+        onclick: () => { filters.type = v; if (v && filters.category && (v === "transfer" || !me.categories[v].some((c) => c.key === filters.category))) filters.category = ""; go("transactions"); },
       }, label)));
 
     let timer;
@@ -327,7 +327,7 @@
       "aria-label": "Search notes",
       oninput: (e) => { clearTimeout(timer); timer = setTimeout(() => { filters.q = e.target.value.trim(); go("transactions"); }, 400); } });
 
-    const cats = filters.type ? me.categories[filters.type] : [...me.categories.expense, ...me.categories.income.filter((c) => c.key !== "other")];
+    const cats = filters.type === "transfer" ? [] : filters.type ? me.categories[filters.type] : [...me.categories.expense, ...me.categories.income.filter((c) => c.key !== "other")];
     const select = (name, label, options) => h("select", { class: "input", "aria-label": label,
       onchange: (e) => { filters[name] = e.target.value; go("transactions"); } },
       h("option", { value: "" }, label), options.map((o) => h("option", { value: o.key, selected: filters[name] === o.key }, o.label)));
@@ -351,12 +351,13 @@
   function anyFilter() { return Object.values(filters).some(Boolean); }
 
   function entryRow(e) {
+    const transfer = e.type === "transfer";
     const signed = e.type === "income" ? e.amount_minor : -e.amount_minor;
     return h("button", { class: "row", onclick: () => go("edit", { entry: e }) },
       h("span", { class: "main" },
         h("div", { class: "title" }, e.category_label),
-        h("div", { class: "sub" }, [e.account_label, e.note].filter(Boolean).join(" · "))),
-      h("span", { class: "amount " + (e.type === "income" ? "income" : "") }, money(signed, { sign: true })));
+        h("div", { class: "sub" }, [transfer ? `${e.account_label} → ${e.to_account_label}` : e.account_label, e.note].filter(Boolean).join(" · "))),
+      h("span", { class: "amount " + (e.type === "income" ? "income" : "") }, transfer ? money(e.amount_minor) : money(signed, { sign: true })));
   }
 
   // ---------------------------------------------------------------- Add / Edit
@@ -370,28 +371,46 @@
       account: start.account || me.default_account || "cash",
       note: start.note || "",
       date: start.date || todayIso(),
+      to: start.to_account || null,
     };
+    const lockedType = editing && (entry.type === "transfer" ? "transfer" : "money");  // can't switch in or out of transfer
     setBackButton(() => go(editing ? "transactions" : "home"));
 
     const amount = h("input", { class: "input amount-input", inputmode: "decimal", autocomplete: "off",
       placeholder: "0.00", "aria-label": "Amount", value: start.amount_minor ? (start.amount_minor / 100).toFixed(2) : "" });
     const catBox = h("div", { class: "chips", role: "group", "aria-label": "Category" });
-    const drawCats = () => catBox.replaceChildren(...me.categories[form.type].map((c) => h("button", {
+    const drawCats = () => {
+      catField.hidden = form.type === "transfer";
+      if (form.type === "transfer") return;
+      catBox.replaceChildren(...me.categories[form.type].map((c) => h("button", {
       class: "chip", "aria-pressed": String(form.category === c.key),
       onclick: () => { form.category = c.key; drawCats(); },
     }, c.label)));
+    };
 
     const typeSeg = h("div", { class: "seg", role: "group", "aria-label": "Type" });
-    const drawType = () => typeSeg.replaceChildren(...[["expense", "Expense"], ["income", "Income"]].map(([v, label]) => h("button", {
+    const typeOptions = [["expense", "Expense"], ["income", "Income"], ["transfer", "Transfer"]].filter(([v]) =>
+      !lockedType || (lockedType === "transfer" ? v === "transfer" : v !== "transfer"));
+    const drawType = () => typeSeg.replaceChildren(...typeOptions.map(([v, label]) => h("button", {
       "aria-pressed": String(form.type === v),
-      onclick: () => { if (form.type !== v) { form.type = v; form.category = null; drawType(); drawCats(); } },
+      onclick: () => { if (form.type !== v) { form.type = v; form.category = null; drawType(); drawCats(); drawAccounts(); } },
     }, label)));
 
     const accBox = h("div", { class: "chips", role: "group", "aria-label": "Account" });
-    const drawAccounts = () => accBox.replaceChildren(...me.accounts.filter((a) => !a.archived || a.account === form.account).map((a) => h("button", {
-      class: "chip", "aria-pressed": String(form.account === a.account),
-      onclick: () => { form.account = a.account; drawAccounts(); },
-    }, a.label, a.is_default ? " ⭐" : "")));
+    const toBox = h("div", { class: "chips", role: "group", "aria-label": "To account" });
+    const accLabel = h("label", {}, "Account");
+    const chipsFor = (selected, pick, exclude) => me.accounts
+      .filter((a) => (!a.archived || a.account === selected) && a.account !== exclude)
+      .map((a) => h("button", { class: "chip", "aria-pressed": String(selected === a.account), onclick: () => pick(a.account) },
+        a.label, a.is_default && form.type !== "transfer" ? " ⭐" : ""));
+    const drawAccounts = () => {
+      const transfer = form.type === "transfer";
+      accLabel.textContent = transfer ? "From" : "Account";
+      toField.hidden = !transfer;
+      if (transfer && form.to === form.account) form.to = null;
+      accBox.replaceChildren(...chipsFor(form.account, (k) => { form.account = k; drawAccounts(); }));
+      toBox.replaceChildren(...chipsFor(form.to, (k) => { form.to = k; drawAccounts(); }, form.account));
+    };
 
     const counter = h("div", { class: "counter" });
     const note = h("textarea", { class: "input", rows: 2, maxlength: 200, placeholder: "Optional", "aria-label": "Note",
@@ -402,18 +421,27 @@
     const dateInput = h("input", { class: "input", type: "date", value: form.date, max: todayIso(), "aria-label": "Date",
       onchange: (e) => (form.date = e.target.value || todayIso()) });
 
+    const catField = h("div", { class: "field" }, h("label", {}, "Category"), catBox);
+    const toField = h("div", { class: "field" }, h("label", {}, "To"), toBox);
     drawType(); drawCats(); drawAccounts();
 
     async function save() {
+      const transfer = form.type === "transfer";
       if (!amount.value.trim()) { toast("Type an amount first."); amount.focus(); return; }
-      if (!form.category) { toast("Pick a category."); return; }
-      const body = { amount: amount.value.trim(), type: form.type, category: form.category, account: form.account,
-                     note: note.value, date: form.date };
+      if (transfer && !form.to) { toast("Pick the account the money goes to."); return; }
+      if (!transfer && !form.category) { toast("Pick a category."); return; }
+      const body = transfer
+        ? { amount: amount.value.trim(), account: form.account, to_account: form.to, note: note.value, date: form.date }
+        : { amount: amount.value.trim(), type: form.type, category: form.category, account: form.account,
+            note: note.value, date: form.date };
       setMainBusy(true);
       try {
         const res = editing
           ? await api(`/api/transactions/${entry.id}`, { method: "PATCH", body })
-          : await api("/api/transactions", { method: "POST", body });
+          : transfer
+            ? await api("/api/transfers", { method: "POST", body: { amount: body.amount, from_account: form.account,
+                                                                      to_account: form.to, note: body.note, date: body.date } })
+            : await api("/api/transactions", { method: "POST", body });
         haptic(res.warning ? "warning" : "success");
         if (res.warning) toast(warningText(res.warning), "warn");
         else toast(editing ? "Saved" : "Added");
@@ -441,8 +469,9 @@
       h("h1", {}, editing ? "Edit entry" : "New entry"),
       typeSeg,
       h("div", { class: "field" }, h("label", {}, "Amount", ` (${state.currency})`), amount),
-      h("div", { class: "field" }, h("label", {}, "Category"), catBox),
-      h("div", { class: "field" }, h("label", {}, "Account"), accBox),
+      catField,
+      h("div", { class: "field" }, accLabel, accBox),
+      toField,
       h("div", { class: "field" }, h("label", {}, "Date"), dateInput),
       h("div", { class: "field" }, h("label", {}, "Note"), note, counter),
       editing ? h("p", { class: "hint" }, `Logged ${new Date(entry.created_at).toLocaleString()}`) : null,
@@ -543,7 +572,7 @@
       const newName = h("input", { class: "input", placeholder: "New account, e.g. Savings", maxlength: 30, "aria-label": "New account name" });
       root.replaceChildren(
         h("h1", {}, "Accounts"),
-        h("p", { class: "hint" }, "Balance = income minus expenses. ⭐ is where new entries go."),
+        h("p", { class: "hint" }, "Balance = income minus expenses, plus transfers in, minus transfers out. ⭐ is where new entries go."),
         h("div", { class: "list" }, active.map(accountRow)),
         h("form", { class: "quick", onsubmit: (e) => { e.preventDefault(); if (newName.value.trim()) change(() => api("/api/accounts", { method: "POST", body: { name: newName.value } }), "Account added"); } },
           newName, h("button", { class: "btn", type: "submit" }, "Add")),

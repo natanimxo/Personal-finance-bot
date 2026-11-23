@@ -47,9 +47,12 @@ def entry_json(entry: dict) -> dict:
         "amount_minor": entry["amount_minor"],
         "type": entry["type"],
         "category": entry["category"],
-        "category_label": catalog.label_for(entry["category"], entry["type"]),
+        "category_label": "🔁 Transfer" if entry["type"] == "transfer" else catalog.label_for(entry["category"], entry["type"]),
         "account": entry["account"],
         "account_label": entry.get("account_name") or catalog.account_label(entry["account"]),
+        "to_account": entry.get("to_account"),
+        "to_account_label": (entry.get("to_account_name") or catalog.account_label(entry["to_account"]))
+        if entry.get("to_account") else None,
         "note": entry["note"] or "",
         "created_at": entry["created_at"] + "Z",  # stored as naive UTC
         "occurred_at": entry["occurred_at"] + "Z",
@@ -113,7 +116,16 @@ class EntryChanges(BaseModel):
     type: Optional[str] = None
     category: Optional[str] = None
     account: Optional[str] = None
+    to_account: Optional[str] = None  # transfers only
     note: Optional[str] = None
+    date: Optional[str] = None
+
+
+class NewTransfer(BaseModel):
+    amount: Amount
+    from_account: str
+    to_account: str
+    note: Optional[str] = ""
     date: Optional[str] = None
 
 
@@ -148,6 +160,17 @@ async def create_transaction(body: NewEntry, request: Request, user: CurrentUser
         return validation_response(e)
     await notify_warning(request, user.id, warning)
     return {"entry": entry_json(entry), "warning": warning}
+
+
+@router.post("/transfers", status_code=201)
+async def create_transfer(body: NewTransfer, user: CurrentUser = Depends(current_user)):
+    """Move money between two of the user's accounts (not income, not an expense)."""
+    try:
+        entry = await db_call(transactions.add_transfer, user.id, parse_amount_minor(body.amount),
+                              body.from_account, body.to_account, body.note or "", body.date or None)
+    except ValidationError as e:
+        return validation_response(e)
+    return {"entry": entry_json(entry), "warning": None}
 
 
 @router.patch("/transactions/{entry_id}")

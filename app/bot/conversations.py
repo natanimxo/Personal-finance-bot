@@ -40,6 +40,7 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 CallbackQueryHandler(h.budget_start, pattern="^set_budget_start$"),
                 CallbackQueryHandler(edit.edit_text_start, pattern=r"^edf:(amount|note|date):\d+$"),
                 CallbackQueryHandler(accounts_ui.name_start, pattern=r"^acc:(add|ren:\w+)$"),
+                CallbackQueryHandler(accounts_ui.transfer_start, pattern=r"^acc:transfer$"),
             ],
             states={
                 h.ASK_AMOUNT: [MessageHandler(FLOW_TEXT, h.add_amount_received)],
@@ -63,6 +64,9 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 h.BUDGET_AMOUNT: [MessageHandler(FLOW_TEXT, h.budget_amount_received)],
                 edit.EDIT_TEXT: [MessageHandler(FLOW_TEXT, edit.edit_text_received)],
                 accounts_ui.ACCOUNT_NAME: [MessageHandler(FLOW_TEXT, accounts_ui.name_received)],
+                accounts_ui.TRANSFER_FROM: [CallbackQueryHandler(accounts_ui.transfer_from, pattern=r"^trf:\w+$")],
+                accounts_ui.TRANSFER_TO: [CallbackQueryHandler(accounts_ui.transfer_to, pattern=r"^trt:\w+$")],
+                accounts_ui.TRANSFER_AMOUNT: [MessageHandler(FLOW_TEXT, accounts_ui.transfer_amount)],
                 ConversationHandler.TIMEOUT: [
                     MessageHandler(filters.ALL, h.conversation_timeout),
                     CallbackQueryHandler(h.conversation_timeout),
@@ -116,8 +120,9 @@ def register_handlers(app, flow_timeout: int = FLOW_TIMEOUT):
     app.add_handler(CallbackQueryHandler(edit.edit_done, pattern=r"^eddone:\d+$"))
     app.add_handler(CallbackQueryHandler(edit.edit_category_menu, pattern=r"^edcat:\d+$"))
     app.add_handler(CallbackQueryHandler(edit.edit_account_menu, pattern=r"^edacc:\d+$"))
-    app.add_handler(CallbackQueryHandler(edit.edit_set_choice, pattern=r"^edset(cat|acc):\d+:\w+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_set_choice, pattern=r"^edset(cat|acc|to):\d+:\w+$"))
     app.add_handler(CallbackQueryHandler(edit.edit_date_menu, pattern=r"^eddate:\d+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_to_menu, pattern=r"^edto:\d+$"))
     app.add_handler(CallbackQueryHandler(edit.edit_set_date, pattern=r"^edsetdate:\d+:(today|yesterday)$"))
 
     # Accounts screen: choose an account to rename / archive / restore, and archive it.
