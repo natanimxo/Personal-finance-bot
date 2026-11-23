@@ -38,7 +38,7 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 MessageHandler(filters.Text([BTN_ADD]), h.add_start),
                 MessageHandler(filters.Text([BTN_ADD_INCOME]), h.add_income_start),
                 CallbackQueryHandler(h.budget_start, pattern="^set_budget_start$"),
-                CallbackQueryHandler(edit.edit_text_start, pattern=r"^edf:(amount|note):\d+$"),
+                CallbackQueryHandler(edit.edit_text_start, pattern=r"^edf:(amount|note|date):\d+$"),
             ],
             states={
                 h.ASK_AMOUNT: [MessageHandler(FLOW_TEXT, h.add_amount_received)],
@@ -47,6 +47,7 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 h.ASK_NOTE: [
                     MessageHandler(FLOW_TEXT, h.add_note_received),
                     CallbackQueryHandler(h.add_note_skipped, pattern="^skip_note$"),
+                    CallbackQueryHandler(h.flow_date_chosen, pattern="^fdate:"),
                 ],
                 h.ASK_INCOME_AMOUNT: [MessageHandler(FLOW_TEXT, h.add_income_amount_received)],
                 h.ASK_INCOME_CATEGORY: [CallbackQueryHandler(h.add_income_category_chosen, pattern="^inccat_")],
@@ -54,7 +55,9 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 h.ASK_INCOME_NOTE: [
                     MessageHandler(FLOW_TEXT, h.add_income_note_received),
                     CallbackQueryHandler(h.add_income_note_skipped, pattern="^skip_income_note$"),
+                    CallbackQueryHandler(h.flow_date_chosen, pattern="^fdate:"),
                 ],
+                h.ASK_DATE: [MessageHandler(FLOW_TEXT, h.flow_date_typed)],
                 h.BUDGET_CATEGORY: [CallbackQueryHandler(h.budget_category_chosen, pattern="^budgetcat_")],
                 h.BUDGET_AMOUNT: [MessageHandler(FLOW_TEXT, h.budget_amount_received)],
                 edit.EDIT_TEXT: [MessageHandler(FLOW_TEXT, edit.edit_text_received)],
@@ -112,6 +115,8 @@ def register_handlers(app, flow_timeout: int = FLOW_TIMEOUT):
     app.add_handler(CallbackQueryHandler(edit.edit_category_menu, pattern=r"^edcat:\d+$"))
     app.add_handler(CallbackQueryHandler(edit.edit_account_menu, pattern=r"^edacc:\d+$"))
     app.add_handler(CallbackQueryHandler(edit.edit_set_choice, pattern=r"^edset(cat|acc):\d+:\w+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_date_menu, pattern=r"^eddate:\d+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_set_date, pattern=r"^edsetdate:\d+:(today|yesterday)$"))
 
     # Quick entry: a plain message that starts with an amount ("500 food lunch").
     # Registered after the flows, so a number typed as a flow's answer goes to the flow.

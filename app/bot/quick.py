@@ -18,7 +18,8 @@ async def _save(update: Update, context: ContextTypes.DEFAULT_TYPE, parsed: dict
     user_id = update.effective_user.id
     account = parsed["account"] or await db_call(accounts.get_default_account, user_id) or "cash"
     entry, warning = await db_call(
-        transactions.add_entry, user_id, parsed["amount_minor"], parsed["type"], parsed["category"], account, parsed["note"]
+        transactions.add_entry, user_id, parsed["amount_minor"], parsed["type"], parsed["category"], account,
+        parsed["note"], parsed.get("day"),
     )
     text = entry_line(entry)
     if warning:
@@ -39,7 +40,7 @@ async def quick_entry_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     if parsed is None:
         return
     data = {"amount_minor": parsed.amount_minor, "type": parsed.type, "category": parsed.category,
-            "account": parsed.account, "note": parsed.note}
+            "account": parsed.account, "note": parsed.note, "day": parsed.day}
     if parsed.category:
         await _save(update, context, data)
         return

@@ -85,8 +85,15 @@ def income_category_keyboard(prefix: str):
     return _grid(buttons, with_cancel=True)
 
 
-def note_keyboard(skip_data: str):
+DATE_CHOICES = [("today", "Today"), ("yesterday", "Yesterday"), ("other", "📅 Other date")]
+
+
+def note_keyboard(skip_data: str, day_choice: str = "today"):
+    """Skip / Cancel, plus the date: Today (default), Yesterday or Other date."""
+    dates = [InlineKeyboardButton(("✓ " if key == day_choice else "") + label, callback_data=f"fdate:{key}")
+             for key, label in DATE_CHOICES]
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("⏭️ Skip", callback_data=skip_data),
+        [dates,
+         [InlineKeyboardButton("⏭️ Skip", callback_data=skip_data),
           InlineKeyboardButton(BTN_CANCEL, callback_data=CB_FLOW_CANCEL)]]
     )

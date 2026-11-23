@@ -44,7 +44,7 @@ def one_user(user_id):
             users.register_user(user_id)
             entry = transactions.add_expense(user_id, 10 + i, "food", f"entry {i}")
             with get_conn() as conn:  # date it last week so the recap has something to send
-                conn.execute("UPDATE expenses SET created_at = ? WHERE id = ?", ("2026-11-18T09:00:00", entry))
+                conn.execute("UPDATE expenses SET occurred_at = ? WHERE id = ?", ("2026-11-18T09:00:00", entry))
             budgets.month_total_for_category(user_id, "food", periods.month_start())
             transactions.list_recent(user_id)
         except sqlite3.OperationalError as e:

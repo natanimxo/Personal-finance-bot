@@ -1,10 +1,12 @@
-"""Editing a saved entry from the bot: amount, category, account or note (date in Phase 4.3).
+"""Editing a saved entry from the bot: amount, category, account, date or note.
 
 History's ✏️ Edit opens the entry with one button per field. Category and account
 are picked with buttons; amount and note are typed, which is a small conversation
 inside the main flow handler (EDIT_TEXT), so Cancel and the menu buttons work as
 everywhere else.
 """
+from datetime import timedelta
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes, ConversationHandler
 
@@ -14,8 +16,8 @@ from app.bot.keyboards import (
     main_menu_keyboard, parse_amount,
 )
 from app.db import db_call
-from app.services import transactions
-from app.services.validation import ValidationError, to_minor
+from app.services import periods, transactions
+from app.services.validation import ValidationError, check_date, to_minor
 
 EDIT_TEXT = 30
 
@@ -25,7 +27,8 @@ def edit_menu(entry_id: int):
         [InlineKeyboardButton("💵 Amount", callback_data=f"edf:amount:{entry_id}"),
          InlineKeyboardButton("🏷️ Category", callback_data=f"edcat:{entry_id}")],
         [InlineKeyboardButton("🏦 Account", callback_data=f"edacc:{entry_id}"),
-         InlineKeyboardButton("📝 Note", callback_data=f"edf:note:{entry_id}")],
+         InlineKeyboardButton("📅 Date", callback_data=f"eddate:{entry_id}")],
+        [InlineKeyboardButton("📝 Note", callback_data=f"edf:note:{entry_id}")],
         [InlineKeyboardButton("✅ Done", callback_data=f"eddone:{entry_id}")],
     ])
 
@@ -90,6 +93,30 @@ async def edit_account_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_reply_markup(reply_markup=kb)
 
 
+async def edit_date_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    entry_id = int(query.data.split(":")[1])
+    if not await _load(update, entry_id):
+        return
+    await query.answer()
+    kb = choice_keyboard([InlineKeyboardButton("Today", callback_data=f"edsetdate:{entry_id}:today"),
+                          InlineKeyboardButton("Yesterday", callback_data=f"edsetdate:{entry_id}:yesterday"),
+                          InlineKeyboardButton("📅 Other date", callback_data=f"edf:date:{entry_id}")], entry_id)
+    await query.edit_message_reply_markup(reply_markup=kb)
+
+
+async def edit_set_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    _, entry_id, choice = query.data.split(":")
+    day = periods.today() - timedelta(days=1 if choice == "yesterday" else 0)
+    entry, text = await _apply(update, int(entry_id), day=day)
+    if entry is None:
+        await query.answer("That entry was deleted.", show_alert=True)
+        return
+    await query.answer("Saved")
+    await query.edit_message_text(text, reply_markup=edit_menu(entry["id"]))
+
+
 async def _apply(update: Update, entry_id: int, **changes):
     """Save the change and return (entry, text) for the editing message."""
     entry, warning = await db_call(transactions.update_entry, update.effective_user.id, entry_id, **changes)
@@ -123,8 +150,11 @@ async def edit_text_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     await query.answer()
     context.user_data["editing"] = {"id": entry["id"], "field": field}
-    prompt = (f"Type the new amount (now {entry['amount']:.2f})." if field == "amount"
-              else f"Type the new note (up to {MAX_NOTE_LENGTH} characters), or send <code>-</code> to clear it.")
+    prompt = {
+        "amount": f"Type the new amount (now {entry['amount']:.2f}).",
+        "note": f"Type the new note (up to {MAX_NOTE_LENGTH} characters), or send <code>-</code> to clear it.",
+        "date": "Type the date it happened, e.g. <code>22/11</code> or <code>2026-11-22</code>.",
+    }[field]
     await context.bot.send_message(chat_id=update.effective_chat.id, text=prompt, reply_markup=cancel_keyboard())
     return EDIT_TEXT
 
@@ -137,6 +167,8 @@ async def edit_text_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         if editing["field"] == "amount":
             changes = {"amount_minor": to_minor(parse_amount(text))}
+        elif editing["field"] == "date":
+            changes = {"day": check_date(text)}
         else:
             changes = {"note": "" if text == "-" else text}
         entry, message = await _apply(update, editing["id"], **changes)

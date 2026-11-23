@@ -13,13 +13,13 @@ def _range(since: datetime, until: datetime = None):
 
 
 def totals_minor(user_id: int, since: datetime, until: datetime = None):
-    """(income, expenses) in cents for since <= created_at < until."""
+    """(income, expenses) in cents for since <= occurred_at < until."""
     start, end = _range(since, until)
     with get_conn() as conn:
         row = conn.execute(
             "SELECT SUM(CASE WHEN type = 'income' THEN amount_minor ELSE 0 END) AS income, "
             "SUM(CASE WHEN type = 'expense' THEN amount_minor ELSE 0 END) AS expense "
-            "FROM expenses WHERE user_id = ? AND created_at >= ? AND created_at < ?",
+            "FROM expenses WHERE user_id = ? AND occurred_at >= ? AND occurred_at < ?",
             (user_id, start, end),
         ).fetchone()
     return row["income"] or 0, row["expense"] or 0
@@ -30,7 +30,7 @@ def by_category_minor(user_id: int, since: datetime, type_: str = "expense", unt
     with get_conn() as conn:
         return [dict(r) for r in conn.execute(
             "SELECT category, SUM(amount_minor) AS total_minor, COUNT(*) AS count FROM expenses "
-            "WHERE user_id = ? AND type = ? AND created_at >= ? AND created_at < ? "
+            "WHERE user_id = ? AND type = ? AND occurred_at >= ? AND occurred_at < ? "
             "GROUP BY category ORDER BY total_minor DESC",
             (user_id, type_, start, end),
         )]

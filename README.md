@@ -10,7 +10,7 @@ Everything works through buttons — there are no commands to type besides
 
 | Button | What happens |
 | --- | --- |
-| ➕ Add Expense | Type the amount → pick a category → pick an account (skipped when you have a ⭐ default; the confirmation then offers 🔁 Change account) → add a note or skip |
+| ➕ Add Expense | Type the amount → pick a category → pick an account (skipped when you have a ⭐ default; the confirmation then offers 🔁 Change account) → add a note or skip. The note step also has Today / Yesterday / 📅 Other date (Today unless you change it) |
 | 💵 Add Income | Same flow, with income categories (Salary, Freelance, Business, Gift, Other) |
 | 📋 History | Your last 10 transactions (income marked +, expenses −), each with ✏️ Edit (amount, category, account, note) and 🗑️ Delete |
 | 📊 Summary | Income, expenses, net and savings rate (net ÷ income, shown when there is income) for this week (from Monday) or this month (from the 1st), plus spending by category |
@@ -33,7 +33,8 @@ Everything works through buttons — there are no commands to type besides
 - Every **Monday at 08:00** (`APP_TIMEZONE`, default Africa/Nairobi) each
   subscribed user who logged something gets a recap of the previous Monday–Sunday.
 - Weeks start Monday 00:00 and months on the 1st at 00:00, both in `APP_TIMEZONE`.
-  Summary, budgets and the recap all use the same periods.
+  Summary, budgets and the recap all use the same periods, and they count an
+  entry by the date it **happened** (which can be in the past), not when it was logged.
 - Admin commands (only for `ADMIN_CHAT_ID`; anyone else gets no reply):
   `/recap_now` sends the admin a preview of their own recap, and
   `/backup_now` makes a backup and sends it to the admin chat.

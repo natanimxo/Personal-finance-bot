@@ -3,6 +3,7 @@
     500 food lunch              -> expense 500, Food, note "lunch"
     +20000 salary               -> income 20,000, Salary
     350 transport mpesa matatu  -> expense 350, Transport, M-Pesa / mobile wallet, note "matatu"
+    500 food yesterday          -> dated yesterday ("today" works too)
 
 The number comes first; a leading + means income. Words are matched to a
 category and an account case-insensitively, including aliases; the first word
@@ -52,6 +53,7 @@ class Parsed:
     account: Optional[str] = None
     note: str = ""
     unmatched: list = field(default_factory=list)
+    day: Optional[object] = None  # a date, when "yesterday" was written
 
 
 def looks_like_quick_entry(text: str) -> bool:
@@ -92,7 +94,7 @@ def parse(text: str, categories: dict = None, accounts: dict = None) -> Optional
     account_index = _names_index(accounts)
 
     type_ = "income" if plus else "expense"
-    category = account = None
+    category = account = day = None
     note_words = []
     for word in words:
         w = _norm(word)
@@ -103,6 +105,9 @@ def parse(text: str, categories: dict = None, accounts: dict = None) -> Optional
         elif category is None and not plus and w in income_index and w not in expense_index and not note_words:
             # "20000 salary": clearly income even without the +
             type_, category = "income", income_index[w]
+        elif day is None and w in ("yesterday", "today"):
+            from app.services import periods
+            day = periods.parse_user_date(w)
         elif account is None and (w in account_index or w.replace("-", "") in account_index):
             account = account_index.get(w) or account_index[w.replace("-", "")]
         else:
@@ -110,4 +115,4 @@ def parse(text: str, categories: dict = None, accounts: dict = None) -> Optional
     note = " ".join(note_words)
     validation.check_note(note)
     return Parsed(amount_minor=amount_minor, type=type_, category=category, account=account, note=note,
-                  unmatched=note_words)
+                  unmatched=note_words, day=day)

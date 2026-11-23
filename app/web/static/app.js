@@ -71,8 +71,14 @@
     });
   }
 
-  function localDay(iso) {
-    return new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  function localDay(isoDate) {  // "2026-11-22" -> "Sun, Nov 22, 2026"
+    const [y, m, d] = isoDate.split("-").map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  }
+
+  function todayIso() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
 
   function categoryLabel(type, key) {
@@ -290,7 +296,7 @@
       try {
         const data = await api(`/api/transactions?${query()}`);
         for (const e of data.items) {
-          const day = localDay(e.created_at);
+          const day = localDay(e.date);
           if (day !== lastDay) {
             lastDay = day;
             dayList = h("div", { class: "list" });
@@ -362,6 +368,7 @@
       category: start.category || null,
       account: start.account || me.default_account || "cash",
       note: start.note || "",
+      date: start.date || todayIso(),
     };
     setBackButton(() => go(editing ? "transactions" : "home"));
 
@@ -391,12 +398,16 @@
     note.value = form.note;
     counter.textContent = `${note.value.length} / 200`;
 
+    const dateInput = h("input", { class: "input", type: "date", value: form.date, max: todayIso(), "aria-label": "Date",
+      onchange: (e) => (form.date = e.target.value || todayIso()) });
+
     drawType(); drawCats(); drawAccounts();
 
     async function save() {
       if (!amount.value.trim()) { toast("Type an amount first."); amount.focus(); return; }
       if (!form.category) { toast("Pick a category."); return; }
-      const body = { amount: amount.value.trim(), type: form.type, category: form.category, account: form.account, note: note.value };
+      const body = { amount: amount.value.trim(), type: form.type, category: form.category, account: form.account,
+                     note: note.value, date: form.date };
       setMainBusy(true);
       try {
         const res = editing
@@ -431,6 +442,7 @@
       h("div", { class: "field" }, h("label", {}, "Amount", ` (${state.currency})`), amount),
       h("div", { class: "field" }, h("label", {}, "Category"), catBox),
       h("div", { class: "field" }, h("label", {}, "Account"), accBox),
+      h("div", { class: "field" }, h("label", {}, "Date"), dateInput),
       h("div", { class: "field" }, h("label", {}, "Note"), note, counter),
       editing ? h("p", { class: "hint" }, `Logged ${new Date(entry.created_at).toLocaleString()}`) : null,
       editing ? h("button", { class: "btn danger", onclick: remove }, "Delete entry") : null);

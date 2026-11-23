@@ -11,7 +11,7 @@ from app import config
 from app.bot.handlers import budget_warning_text
 from app.bot.membership import is_subscribed, touch_user
 from app.db import db_call
-from app.services import accounts, budgets, catalog, prefs, quick_entry, summaries, transactions
+from app.services import accounts, budgets, catalog, periods, prefs, quick_entry, summaries, transactions
 from app.services.validation import ValidationError, check_category, parse_amount_minor
 from app.web.auth import InitDataError, validate_init_data
 
@@ -52,6 +52,8 @@ def entry_json(entry: dict) -> dict:
         "account_label": catalog.account_label(entry["account"]),
         "note": entry["note"] or "",
         "created_at": entry["created_at"] + "Z",  # stored as naive UTC
+        "occurred_at": entry["occurred_at"] + "Z",
+        "date": periods.local_date_of(entry["occurred_at"]).isoformat(),  # local date it happened
     }
 
 
@@ -103,6 +105,7 @@ class NewEntry(BaseModel):
     category: str
     account: Optional[str] = None
     note: Optional[str] = ""
+    date: Optional[str] = None  # local YYYY-MM-DD it happened; default today
 
 
 class EntryChanges(BaseModel):
@@ -111,6 +114,7 @@ class EntryChanges(BaseModel):
     category: Optional[str] = None
     account: Optional[str] = None
     note: Optional[str] = None
+    date: Optional[str] = None
 
 
 @router.get("/transactions")
@@ -137,7 +141,8 @@ async def create_transaction(body: NewEntry, request: Request, user: CurrentUser
         amount_minor = parse_amount_minor(body.amount)
         account = body.account or await db_call(accounts.get_default_account, user.id) or "cash"
         entry, warning = await db_call(
-            transactions.add_entry, user.id, amount_minor, body.type, body.category, account, body.note or ""
+            transactions.add_entry, user.id, amount_minor, body.type, body.category, account, body.note or "",
+            body.date or None,
         )
     except ValidationError as e:
         return validation_response(e)
@@ -154,6 +159,8 @@ async def edit_transaction(entry_id: int, body: EntryChanges, request: Request,
             changes["amount_minor"] = parse_amount_minor(changes.pop("amount"))
         if "type" in changes:
             changes["type_"] = changes.pop("type")
+        if "date" in changes:
+            changes["day"] = changes.pop("date")
         entry, warning = await db_call(_update, user.id, entry_id, changes)
     except ValidationError as e:
         return validation_response(e)
@@ -192,13 +199,13 @@ async def quick(body: QuickText, request: Request, user: CurrentUser = Depends(c
     if parsed is None:
         return JSONResponse(status_code=422, content={"error": "Start with an amount, like: 500 food lunch", "field": "text"})
     draft = {"amount_minor": parsed.amount_minor, "type": parsed.type, "category": parsed.category,
-             "account": parsed.account, "note": parsed.note}
+             "account": parsed.account, "note": parsed.note, "date": parsed.day.isoformat() if parsed.day else None}
     if not parsed.category:
         return {"entry": None, "draft": draft, "warning": None}
     account = parsed.account or await db_call(accounts.get_default_account, user.id) or "cash"
     try:
         entry, warning = await db_call(transactions.add_entry, user.id, parsed.amount_minor, parsed.type,
-                                       parsed.category, account, parsed.note)
+                                       parsed.category, account, parsed.note, parsed.day)
     except ValidationError as e:
         return validation_response(e)
     await notify_warning(request, user.id, warning)

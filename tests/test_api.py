@@ -343,11 +343,11 @@ def test_list_is_ordered_by_date_not_by_id(server):
     ids = [transactions.add_expense(UID, n, "food") for n in range(1, 36)]
     with get_conn() as conn:  # give every entry a shuffled date
         for i, entry_id in enumerate(ids):
-            conn.execute("UPDATE expenses SET created_at = ? WHERE id = ?",
+            conn.execute("UPDATE expenses SET occurred_at = ? WHERE id = ?",
                          (f"2026-11-{(i * 7) % 28 + 1:02d}T10:00:00", entry_id))
     first = server.get("/api/transactions", headers=auth()).json()
     second = server.get("/api/transactions", params={"cursor": first["next_cursor"]}, headers=auth()).json()
-    dates = [e["created_at"] for e in first["items"] + second["items"]]
+    dates = [e["occurred_at"] for e in first["items"] + second["items"]]
     assert len(dates) == 35 and dates == sorted(dates, reverse=True)
     assert second["next_cursor"] is None
     assert server.get("/api/transactions", params={"cursor": "junk"}, headers=auth()).status_code == 422

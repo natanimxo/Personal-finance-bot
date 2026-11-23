@@ -4,7 +4,7 @@ Every message goes out as HTML (the Application's default parse mode), and every
 dynamic value (notes, labels, links) is passed through esc() first.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes, ConversationHandler
@@ -20,7 +20,7 @@ from app.bot.membership import is_subscribed, require_subscription, send_gate, t
 from app.db import db_call
 from app.services import accounts, budgets, periods, summaries, transactions, users
 from app.services.backup import run_backup
-from app.services.validation import to_minor
+from app.services.validation import ValidationError, check_date, to_minor
 from app.services.recap import recap_text
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ ASK_INCOME_AMOUNT, ASK_INCOME_CATEGORY, ASK_INCOME_ACCOUNT, ASK_INCOME_NOTE = ra
 BUDGET_CATEGORY, BUDGET_AMOUNT = range(20, 22)
 
 PENDING_KEYS = ("pending_amount", "pending_category", "pending_account", "used_default", "pending_budget_category",
-                "editing")
+                "editing", "pending_day", "day_choice", "flow_type")
 
 
 def clear_pending(context: ContextTypes.DEFAULT_TYPE):
@@ -117,13 +117,50 @@ async def _flow_amount(update: Update, context: ContextTypes.DEFAULT_TYPE, type_
     return cfg["states"][1]
 
 
+ASK_DATE = 40  # typed date for "📅 Other date" (either flow; the type is in user_data)
+
+
+def _note_prompt(context) -> str:
+    day = context.user_data.get("pending_day")
+    when = "today" if day is None else f"{day:%a %d %b %Y}"
+    return f"📅 Date: <b>{when}</b>\nWant to add a quick note? Type it, or tap Skip."
+
+
 async def _ask_note(update: Update, context: ContextTypes.DEFAULT_TYPE, type_: str):
+    context.user_data["flow_type"] = type_
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="Want to add a quick note? Type it, or tap Skip.",
-        reply_markup=note_keyboard(FLOW[type_]["skip"]),
+        text=_note_prompt(context),
+        reply_markup=note_keyboard(FLOW[type_]["skip"], context.user_data.get("day_choice", "today")),
     )
     return FLOW[type_]["states"][3]
+
+
+async def flow_date_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Today / Yesterday / Other date on the note step."""
+    query = update.callback_query
+    await query.answer()
+    choice = query.data.split(":", 1)[1]
+    type_ = context.user_data.get("flow_type", "expense")
+    if choice == "other":
+        await query.edit_message_text("📅 Type the date, e.g. <code>22/11</code> or <code>2026-11-22</code>.")
+        return ASK_DATE
+    context.user_data["day_choice"] = choice
+    context.user_data["pending_day"] = None if choice == "today" else periods.today() - timedelta(days=1)
+    await query.edit_message_text(_note_prompt(context), reply_markup=note_keyboard(FLOW[type_]["skip"], choice))
+    return FLOW[type_]["states"][3]
+
+
+async def flow_date_typed(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    type_ = context.user_data.get("flow_type", "expense")
+    try:
+        day = check_date(update.message.text)
+    except ValidationError as e:
+        await update.message.reply_text(f"{esc(e)} Try again, or tap {BTN_CANCEL}.")
+        return ASK_DATE
+    context.user_data["pending_day"] = None if day == periods.today() else day
+    context.user_data["day_choice"] = "today" if day == periods.today() else "other"
+    return await _ask_note(update, context, type_)
 
 
 async def _flow_category(update: Update, context: ContextTypes.DEFAULT_TYPE, type_: str):
@@ -167,6 +204,9 @@ def entry_line(entry) -> str:
         f"{icon} Logged {sign}{entry['amount']:.2f} — {esc(label_for(entry['category'], type_))} "
         f"({esc(account_label(entry['account']))})"
     )
+    day = periods.local_date_of(entry["occurred_at"])
+    if day != periods.today():
+        text += f"\n📅 {day:%a %d %b %Y}"
     if entry["note"]:
         text += f"\n📝 {esc(entry['note'])}"
     return text
@@ -196,8 +236,10 @@ async def _finalize(update: Update, context: ContextTypes.DEFAULT_TYPE, note: st
     category_key = context.user_data.pop("pending_category")
     account_key = context.user_data.pop("pending_account", "cash")
     used_default = context.user_data.pop("used_default", False)
+    day = context.user_data.pop("pending_day", None)
+    context.user_data.pop("day_choice", None)
     entry, warning = await db_call(
-        transactions.add_entry, user_id, to_minor(amount), type_, category_key, account_key, note
+        transactions.add_entry, user_id, to_minor(amount), type_, category_key, account_key, note, day
     )
     entry_id = entry["id"]
     text = entry_line(entry)
@@ -218,7 +260,7 @@ async def _flow_note_typed(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         await update.message.reply_text(
             f"Notes can be up to {MAX_NOTE_LENGTH} characters; yours has {len(note)}. "
             "Send a shorter one, or tap Skip.",
-            reply_markup=note_keyboard(FLOW[type_]["skip"]),
+            reply_markup=note_keyboard(FLOW[type_]["skip"], context.user_data.get("day_choice", "today")),
         )
         return FLOW[type_]["states"][3]
     return await _finalize(update, context, note, type_)
@@ -344,7 +386,7 @@ async def history_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.effective_message.reply_text("📋 <b>Recent transactions:</b>", reply_markup=main_menu_keyboard())
     for r in rows:
-        date = r["created_at"][:10]
+        date = f"{periods.local_date_of(r['occurred_at']):%d %b}"
         type_ = r["type"]
         sign = "+" if type_ == "income" else MINUS
         note = f" — {esc(r['note'])}" if r["note"] else ""

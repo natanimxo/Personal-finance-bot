@@ -87,3 +87,25 @@ def check_currency(code: str) -> str:
     if not CURRENCY.match(code):
         raise ValidationError("Currency must be a 3-letter code, like KES or ETB.", "currency")
     return code
+
+
+EARLIEST = "2000-01-01"
+
+
+def check_date(day, now=None):
+    """A local date (date or YYYY-MM-DD / user text) that isn't in the future. Returns a date."""
+    from datetime import date as _date
+
+    from app.services import periods
+
+    if day is None or day == "":
+        return None
+    try:
+        d = day if isinstance(day, _date) else periods.parse_user_date(str(day), now)
+    except ValueError as e:
+        raise ValidationError(str(e), "date")
+    if d > periods.today(now):
+        raise ValidationError("The date can't be in the future.", "date")
+    if d.isoformat() < EARLIEST:
+        raise ValidationError("That date is too far back.", "date")
+    return d

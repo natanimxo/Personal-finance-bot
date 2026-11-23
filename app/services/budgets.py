@@ -33,7 +33,7 @@ def spent_minor(user_id: int, category: str, since: datetime) -> int:
     with get_conn() as conn:
         row = conn.execute(
             "SELECT SUM(amount_minor) AS total FROM expenses "
-            "WHERE user_id = ? AND category = ? AND type = 'expense' AND created_at >= ?",
+            "WHERE user_id = ? AND category = ? AND type = 'expense' AND occurred_at >= ?",
             (user_id, category, to_db(since)),
         ).fetchone()
         return row["total"] or 0
@@ -64,7 +64,7 @@ def overview(user_id: int, now: datetime = None):
             "SELECT category, amount_minor FROM budgets WHERE user_id = ?", (user_id,))}
         spent = {r["category"]: r["total"] for r in conn.execute(
             "SELECT category, SUM(amount_minor) AS total FROM expenses "
-            "WHERE user_id = ? AND type = 'expense' AND created_at >= ? GROUP BY category",
+            "WHERE user_id = ? AND type = 'expense' AND occurred_at >= ? GROUP BY category",
             (user_id, to_db(since)))}
     items = []
     for key, label in catalog.CATEGORIES:

@@ -57,7 +57,7 @@ def test_1_recap_covers_last_monday_to_sunday(db):
                             (40, "2026-11-22T21:00:00")]:  # Mon 23 Nov 00:00: this week, out
         entry = transactions.add_expense(UID, amount, "food")
         with get_conn() as conn:
-            conn.execute("UPDATE expenses SET created_at = ? WHERE id = ?", (created, entry))
+            conn.execute("UPDATE expenses SET occurred_at = ? WHERE id = ?", (created, entry))
     text = recap_text(UID, start, end)
     assert "Expenses: 50.00" in text and "Mon 16 Nov – Sun 22 Nov" in text
     assert_valid_html(text)
