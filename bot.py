@@ -1,4 +1,5 @@
 import os
+import html
 import logging
 from datetime import datetime, timedelta, time, timezone
 from functools import wraps
@@ -8,7 +9,6 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
 )
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -44,6 +44,7 @@ BTN_SUMMARY = "📊 Summary"
 BTN_BUDGETS = "💰 Budgets"
 BTN_ACCOUNTS = "🏦 Accounts"
 BTN_HELP = "❓ Help"
+BTN_CANCEL = "❌ Cancel"
 
 ACCOUNTS = [
     ("cash", "💵 Cash"),
@@ -54,10 +55,12 @@ ACCOUNTS = [
 ACCOUNT_LABELS = dict(ACCOUNTS)
 
 
-def account_keyboard(prefix: str):
+def account_keyboard(prefix: str, default: str = None):
+    """Account picker. The default account (if given) comes first, marked with ⭐."""
+    ordered = sorted(ACCOUNTS, key=lambda a: a[0] != default) if default else ACCOUNTS
     buttons = [
-        InlineKeyboardButton(label, callback_data=f"{prefix}_{key}")
-        for key, label in ACCOUNTS
+        InlineKeyboardButton(f"⭐ {label}" if key == default else label, callback_data=f"{prefix}_{key}")
+        for key, label in ordered
     ]
     rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
     return InlineKeyboardMarkup(rows)
@@ -99,6 +102,28 @@ def main_menu_keyboard():
     )
 
 
+def cancel_keyboard():
+    return ReplyKeyboardMarkup([[BTN_CANCEL]], resize_keyboard=True)
+
+
+MENU_BUTTONS = [BTN_ADD, BTN_ADD_INCOME, BTN_HISTORY, BTN_SUMMARY, BTN_BUDGETS, BTN_ACCOUNTS, BTN_HELP]
+MENU_OR_CANCEL = filters.Text(MENU_BUTTONS + [BTN_CANCEL])
+# Free text typed during a guided flow (amount / note), excluding commands and buttons.
+FLOW_TEXT = filters.TEXT & ~filters.COMMAND & ~MENU_OR_CANCEL
+
+
+def parse_amount(text: str) -> float:
+    """Accepts 12.50, 1,200 or 1 200. Raises ValueError for anything else or <= 0."""
+    amount = float(text.strip().replace(",", "").replace(" ", ""))
+    if amount <= 0 or amount != amount or amount == float("inf"):
+        raise ValueError
+    return amount
+
+
+def month_start() -> datetime:
+    return datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
 def category_keyboard(prefix: str):
     buttons = [
         InlineKeyboardButton(label, callback_data=f"{prefix}_{key}")
@@ -138,20 +163,20 @@ def gate_keyboard():
 
 
 GATE_TEXT = (
-    "🔒 *Welcome to your expense tracker!*\n\n"
+    "🔒 <b>Welcome to your expense tracker!</b>\n\n"
     "Here's what I do:\n"
     "• Log spending in 3 taps\n"
     "• Warn you the moment you're near a budget\n"
     "• Send you a spending recap every Monday\n\n"
     "This bot is free — you just need to join my channel first:\n"
-    f"{CHANNEL_INVITE_LINK}\n\n"
+    f"{html.escape(CHANNEL_INVITE_LINK)}\n\n"
     "Then tap ✅ below."
 )
 
 
 async def send_gate(update: Update):
     await update.effective_message.reply_text(
-        GATE_TEXT, reply_markup=gate_keyboard(), parse_mode=ParseMode.MARKDOWN
+        GATE_TEXT, reply_markup=gate_keyboard(), parse_mode=ParseMode.HTML
     )
 
 
@@ -211,8 +236,9 @@ async def help_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"1️⃣ Tap {BTN_ADD} or {BTN_ADD_INCOME}\n"
         "2️⃣ Type the amount\n"
         "3️⃣ Tap a category button\n"
-        "4️⃣ Tap an account (Cash/Bank/Card/Mobile Wallets)\n"
+        "4️⃣ Tap an account (your ⭐ default is listed first)\n"
         "5️⃣ Add a note, or skip it\n\n"
+        f"Changed your mind? Tap {BTN_CANCEL} or send /cancel at any step.\n\n"
         "That's it — it's saved. Use the other buttons any time to check your "
         "history, totals, or budgets.",
         reply_markup=main_menu_keyboard(),
@@ -231,16 +257,14 @@ async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.register_user(user_id)
     await update.message.reply_text(
         "💵 How much did you spend? (just type the number, e.g. 12.50)",
-        reply_markup=ReplyKeyboardRemove(),
+        reply_markup=cancel_keyboard(),
     )
     return ASK_AMOUNT
 
 
 async def add_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        amount = float(update.message.text.strip())
-        if amount <= 0:
-            raise ValueError
+        amount = parse_amount(update.message.text)
     except ValueError:
         await update.message.reply_text("That doesn't look like a valid amount — try again, e.g. 12.50")
         return ASK_AMOUNT
@@ -260,7 +284,7 @@ async def add_category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text="Which account?",
-        reply_markup=account_keyboard("addacc"),
+        reply_markup=account_keyboard("addacc", db.get_default_account(update.effective_user.id)),
     )
     return ASK_ACCOUNT
 
@@ -297,8 +321,7 @@ async def finalize_expense(update: Update, context: ContextTypes.DEFAULT_TYPE, n
     if type_ == "expense":
         budget = db.get_budget(user_id, category_key)
         if budget:
-            month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            spent = db.month_total_for_category(user_id, category_key, month_start)
+            spent = db.month_total_for_category(user_id, category_key, month_start())
             pct = spent / budget * 100
             if spent > budget:
                 text += f"\n\n🚨 You're over budget on {label}: {spent:.2f} / {budget:.2f}"
@@ -332,16 +355,14 @@ async def add_income_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.register_user(user_id)
     await update.message.reply_text(
         "💵 How much did you receive? (just type the number, e.g. 500)",
-        reply_markup=ReplyKeyboardRemove(),
+        reply_markup=cancel_keyboard(),
     )
     return ASK_INCOME_AMOUNT
 
 
 async def add_income_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        amount = float(update.message.text.strip())
-        if amount <= 0:
-            raise ValueError
+        amount = parse_amount(update.message.text)
     except ValueError:
         await update.message.reply_text("That doesn't look like a valid amount — try again, e.g. 500")
         return ASK_INCOME_AMOUNT
@@ -361,7 +382,7 @@ async def add_income_category_chosen(update: Update, context: ContextTypes.DEFAU
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text="Which account?",
-        reply_markup=account_keyboard("incacc"),
+        reply_markup=account_keyboard("incacc", db.get_default_account(update.effective_user.id)),
     )
     return ASK_INCOME_ACCOUNT
 
@@ -401,6 +422,33 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def conversation_timeout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    if update and update.effective_chat:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="⌛ That entry timed out and wasn't saved.",
+            reply_markup=main_menu_keyboard(),
+        )
+
+
+async def leave_flow_for_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """A menu button (or /start) tapped mid-flow: drop the half-finished entry and open that screen."""
+    context.user_data.clear()
+    text = update.message.text if update.message else ""
+    view = {
+        BTN_HISTORY: history_view,
+        BTN_SUMMARY: summary_view,
+        BTN_BUDGETS: budgets_view,
+        BTN_ACCOUNTS: accounts_view,
+        BTN_HELP: help_view,
+    }.get(text)
+    if view is None:  # /start, or Add Expense / Add Income tapped mid-flow
+        return await cancel(update, context)
+    await view(update, context)
+    return ConversationHandler.END
+
+
 # ---------------------------------------------------------------------------
 # History
 # ---------------------------------------------------------------------------
@@ -409,11 +457,11 @@ async def history_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = db.list_recent(update.effective_user.id)
     if not rows:
         await update.message.reply_text(
-            f"No expenses yet. Tap {BTN_ADD} to log your first one.",
+            f"Nothing logged yet. Tap {BTN_ADD} or {BTN_ADD_INCOME} to log your first entry.",
             reply_markup=main_menu_keyboard(),
         )
         return
-    await update.message.reply_text("📋 *Recent expenses:*", parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text("📋 *Recent activity:*", parse_mode=ParseMode.MARKDOWN)
     for r in rows:
         date = r["created_at"][:10]
         type_ = r["type"] if "type" in r.keys() else "expense"
@@ -446,7 +494,7 @@ async def summary_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("This Week", callback_data="sum_week"),
+                InlineKeyboardButton("Last 7 Days", callback_data="sum_week"),
                 InlineKeyboardButton("This Month", callback_data="sum_month"),
             ]
         ]
@@ -458,18 +506,19 @@ async def summary_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     period = query.data.split("_", 1)[1]
-    since = datetime.utcnow() - (timedelta(days=30) if period == "month" else timedelta(days=7))
-    label = "month" if period == "month" else "week"
+    if period == "month":
+        since, title = month_start(), "This month"
+    else:
+        since, title = datetime.utcnow() - timedelta(days=7), "Last 7 days"
 
     income_total, expense_total = db.totals_since(update.effective_user.id, since)
     net = income_total - expense_total
 
     lines = [
-        f"📊 *This {label}:*",
+        f"📊 *{title}:*",
         f"💵 Income: {income_total:.2f}",
         f"💸 Expenses: {expense_total:.2f}",
         f"⚖️ Net Balance: {net:+.2f}",
-        f"🏦 Savings: {net:+.2f}",
         "",
     ]
 
@@ -566,14 +615,17 @@ async def budget_category_chosen(update: Update, context: ContextTypes.DEFAULT_T
     await query.edit_message_text(
         f"Category: {CATEGORY_LABELS[category_key]}\n\nType the monthly limit, e.g. 200"
     )
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"(Tap {BTN_CANCEL} to stop.)",
+        reply_markup=cancel_keyboard(),
+    )
     return BUDGET_AMOUNT
 
 
 async def budget_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        amount = float(update.message.text.strip())
-        if amount <= 0:
-            raise ValueError
+        amount = parse_amount(update.message.text)
     except ValueError:
         await update.message.reply_text("That doesn't look like a valid amount — try again, e.g. 200")
         return BUDGET_AMOUNT
@@ -626,6 +678,68 @@ def main():
     db.init_db()
     app = Application.builder().token(BOT_TOKEN).build()
 
+    flow_fallbacks = [
+        CommandHandler("cancel", cancel),
+        MessageHandler(filters.Text([BTN_CANCEL]), cancel),
+        CommandHandler("start", leave_flow_for_menu),
+        MessageHandler(filters.Text(MENU_BUTTONS), leave_flow_for_menu),
+    ]
+    timeout_state = {
+        ConversationHandler.TIMEOUT: [
+            MessageHandler(filters.ALL, conversation_timeout),
+            CallbackQueryHandler(conversation_timeout),
+        ]
+    }
+    FLOW_TIMEOUT = 15 * 60  # seconds
+
+    add_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex(f"^{BTN_ADD}$"), add_start)],
+        states={
+            ASK_AMOUNT: [MessageHandler(FLOW_TEXT, add_amount_received)],
+            ASK_CATEGORY: [CallbackQueryHandler(add_category_chosen, pattern="^addcat_")],
+            ASK_ACCOUNT: [CallbackQueryHandler(add_account_chosen, pattern="^addacc_")],
+            ASK_NOTE: [
+                MessageHandler(FLOW_TEXT, add_note_received),
+                CallbackQueryHandler(add_note_skipped, pattern="^skip_note$"),
+            ],
+            **timeout_state,
+        },
+        fallbacks=flow_fallbacks,
+        conversation_timeout=FLOW_TIMEOUT,
+    )
+    app.add_handler(add_conv)
+
+    add_income_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex(f"^{BTN_ADD_INCOME}$"), add_income_start)],
+        states={
+            ASK_INCOME_AMOUNT: [MessageHandler(FLOW_TEXT, add_income_amount_received)],
+            ASK_INCOME_CATEGORY: [CallbackQueryHandler(add_income_category_chosen, pattern="^inccat_")],
+            ASK_INCOME_ACCOUNT: [CallbackQueryHandler(add_income_account_chosen, pattern="^incacc_")],
+            ASK_INCOME_NOTE: [
+                MessageHandler(FLOW_TEXT, add_income_note_received),
+                CallbackQueryHandler(add_income_note_skipped, pattern="^skip_income_note$"),
+            ],
+            **timeout_state,
+        },
+        fallbacks=flow_fallbacks,
+        conversation_timeout=FLOW_TIMEOUT,
+    )
+    app.add_handler(add_income_conv)
+
+    budget_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(budget_start, pattern="^set_budget_start$")],
+        states={
+            BUDGET_CATEGORY: [CallbackQueryHandler(budget_category_chosen, pattern="^budgetcat_")],
+            BUDGET_AMOUNT: [MessageHandler(FLOW_TEXT, budget_amount_received)],
+            **timeout_state,
+        },
+        fallbacks=flow_fallbacks,
+        conversation_timeout=FLOW_TIMEOUT,
+    )
+    app.add_handler(budget_conv)
+
+    # Plain menu screens. Registered AFTER the flows on purpose: a menu button tapped
+    # mid-flow must reach the flow's fallback (which ends the flow) first.
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_view))
     app.add_handler(MessageHandler(filters.Regex(f"^{BTN_HELP}$"), help_view))
@@ -634,46 +748,6 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(f"^{BTN_BUDGETS}$"), budgets_view))
     app.add_handler(MessageHandler(filters.Regex(f"^{BTN_ACCOUNTS}$"), accounts_view))
 
-    add_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex(f"^{BTN_ADD}$"), add_start)],
-        states={
-            ASK_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_amount_received)],
-            ASK_CATEGORY: [CallbackQueryHandler(add_category_chosen, pattern="^addcat_")],
-            ASK_ACCOUNT: [CallbackQueryHandler(add_account_chosen, pattern="^addacc_")],
-            ASK_NOTE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_note_received),
-                CallbackQueryHandler(add_note_skipped, pattern="^skip_note$"),
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
-    app.add_handler(add_conv)
-
-    add_income_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex(f"^{BTN_ADD_INCOME}$"), add_income_start)],
-        states={
-            ASK_INCOME_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_income_amount_received)],
-            ASK_INCOME_CATEGORY: [CallbackQueryHandler(add_income_category_chosen, pattern="^inccat_")],
-            ASK_INCOME_ACCOUNT: [CallbackQueryHandler(add_income_account_chosen, pattern="^incacc_")],
-            ASK_INCOME_NOTE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, add_income_note_received),
-                CallbackQueryHandler(add_income_note_skipped, pattern="^skip_income_note$"),
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
-    app.add_handler(add_income_conv)
-
-    budget_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(budget_start, pattern="^set_budget_start$")],
-        states={
-            BUDGET_CATEGORY: [CallbackQueryHandler(budget_category_chosen, pattern="^budgetcat_")],
-            BUDGET_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, budget_amount_received)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
-    app.add_handler(budget_conv)
-
     app.add_handler(CallbackQueryHandler(recheck_sub_callback, pattern="^recheck_sub$"))
     app.add_handler(CallbackQueryHandler(delete_callback, pattern="^del_"))
     app.add_handler(CallbackQueryHandler(summary_callback, pattern="^sum_"))
@@ -681,7 +755,8 @@ def main():
     app.add_handler(CallbackQueryHandler(set_default_account_callback, pattern="^setdefacc_"))
 
     app.job_queue.run_daily(
-        send_weekly_recap, time=time(hour=9, tzinfo=timezone.utc), days=(0,)
+        # python-telegram-bot 20+ numbers days 0=Sunday ... 6=Saturday, so Monday is 1.
+        send_weekly_recap, time=time(hour=9, tzinfo=timezone.utc), days=(1,)
     )
 
     logger.info("Bot starting...")

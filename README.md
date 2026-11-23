@@ -1,16 +1,30 @@
 # Personal Finance Telegram Bot
 
-Track expenses right inside Telegram. Users must be subscribed to your channel
-to use the bot — they're checked on every command via Telegram's
+Track spending and income right inside Telegram. Users must be subscribed to
+your channel to use the bot — they're checked on every screen via Telegram's
 `getChatMember` API, so it can't be faked by leaving after joining.
 
-## Commands
-- `/add 12.50 food lunch` — log an expense
-- `/list` — last 10 expenses
-- `/delete 7` — delete expense #7
-- `/summary` or `/summary month` — spending by category
-- `/setbudget food 200` — set a budget, get warned when you go over
-- `/budgets` — view budgets
+## What it does
+Everything works through buttons — there are no commands to type besides
+`/start`, `/help` and `/cancel`.
+
+| Button | What happens |
+| --- | --- |
+| ➕ Add Expense | Type the amount → pick a category → pick an account → add a note or skip |
+| 💵 Add Income | Same flow, with income categories (Salary, Freelance, Business, Gift, Other) |
+| 📋 History | Your last 10 entries (expenses and income), each with a 🗑️ Delete button |
+| 📊 Summary | Income, expenses and net balance for the last 7 days or this calendar month, plus spending by category |
+| 💰 Budgets | Set a monthly limit per expense category. You're warned at 80% and when you go over |
+| 🏦 Accounts | Balance per account (Cash, Bank, Card, Mobile Wallets) and your ⭐ default account, which is listed first whenever you pick an account |
+| ❓ Help | How the flow works |
+
+- Expense categories: Food, Transport, Bills, Shopping, Fun, Other.
+- Amounts accept `12.50`, `1,200` or `1 200`.
+- Tap ❌ Cancel (or send `/cancel`) to drop a half-finished entry. Tapping
+  another menu button also drops it, and an unfinished entry times out after
+  15 minutes.
+- Every **Monday at 09:00 UTC** each subscribed user who logged something that
+  week gets an automatic weekly recap.
 
 ## 1. Create the bot
 1. Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, follow the prompts.
@@ -24,51 +38,46 @@ to use the bot — they're checked on every command via Telegram's
    `getChatMember` calls will fail and the bot will refuse everyone.
 3. `CHANNEL_INVITE_LINK` = the public `t.me/...` link people tap to join.
 
-## 3. Run locally (optional, to test first)
+## 3. Environment variables
+| Variable | Required | Meaning |
+| --- | --- | --- |
+| `BOT_TOKEN` | yes | Token from BotFather |
+| `REQUIRED_CHANNEL` | yes | `@username` or numeric ID of the channel users must join |
+| `CHANNEL_INVITE_LINK` | no | Link shown on the "join the channel" screen |
+| `DB_PATH` | no | Where the SQLite database lives (default `finance_bot.db`) |
+
+`env.example` lists them with placeholder values.
+
+## 4. Run locally (optional, to test first)
 ```bash
 python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env          # then fill in your real values
-export $(cat .env | xargs)    # Windows: use a tool like python-dotenv instead
+cp env.example .env           # then fill in your real values
+export $(cat .env | xargs)    # Windows PowerShell: set each one with $env:BOT_TOKEN="..."
 python bot.py
 ```
-
-## 4. Push to GitHub
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git branch -M main
-git remote add origin https://github.com/<your-username>/<repo-name>.git
-git push -u origin main
-```
-`.env` is in `.gitignore` — never commit your real token.
+`.env` and `finance_bot.db` are in `.gitignore` — never commit your real token.
 
 ## 5. Deploy on Railway
-1. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo** → pick your repo.
-2. Railway will detect the `Procfile` and run `python bot.py` as a worker.
-3. Go to your service's **Variables** tab and add:
-   - `BOT_TOKEN`
-   - `REQUIRED_CHANNEL`
-   - `CHANNEL_INVITE_LINK`
+1. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo** → pick this repo
+   (the default branch is `muraja`).
+2. Railway detects the `Procfile` and runs `python bot.py` as a worker.
+3. In your service's **Variables** tab add `BOT_TOKEN`, `REQUIRED_CHANNEL` and `CHANNEL_INVITE_LINK`.
 4. **Important — persistent storage:** Railway's filesystem resets on every
-   redeploy, which will wipe your SQLite database (`finance_bot.db`).
-   In your Railway service, go to **Settings → Volumes → New Volume**,
-   mount it at `/app/data`, then change `DB_PATH` at the top of
-   `database.py` to `"/app/data/finance_bot.db"` before deploying, so your
-   users' data survives future deploys.
-5. Deploy. Check the **Deployments → Logs** tab for `Bot starting...` to
-   confirm it's live.
+   redeploy, which would wipe the SQLite database. Go to **Settings → Volumes →
+   New Volume**, mount it at `/app/data`, and add the variable
+   `DB_PATH=/app/data/finance_bot.db`. No code change is needed.
+5. Deploy. Check **Deployments → Logs** for `Bot starting...` to confirm it's live.
 
 ## Cost
 - Telegram Bot API: free
 - Railway: free trial credit, then usage-based (a small worker like this
   typically runs a few dollars a month)
-- No other external APIs used, so there's no per-user or per-message cost.
+- No other external APIs, so there's no per-user or per-message cost.
 
 ## Notes
-- The subscription check calls Telegram on every command, so there's no way
-  for someone to fake being subscribed.
-- If someone unsubscribes from the channel, they're locked out again
-  automatically on their next command — no extra code needed.
+- The subscription check calls Telegram on every screen, so there's no way
+  to fake being subscribed. Someone who leaves the channel is locked out again
+  on their next tap.
+- Budgets and the "This month" summary both count from the 1st of the month (UTC).

@@ -1,8 +1,11 @@
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 
-DB_PATH = "finance_bot.db"
+# On Railway, mount a volume (e.g. at /app/data) and set the DB_PATH variable
+# to /app/data/finance_bot.db so data survives redeploys.
+DB_PATH = os.environ.get("DB_PATH", "finance_bot.db")
 
 
 @contextmanager
@@ -17,6 +20,9 @@ def get_conn():
 
 
 def init_db():
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     with get_conn() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS expenses (

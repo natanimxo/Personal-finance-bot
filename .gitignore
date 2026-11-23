@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 finance_bot.db
+data/
+venv/
+.venv/
