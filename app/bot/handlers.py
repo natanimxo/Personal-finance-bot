@@ -29,7 +29,8 @@ ASK_AMOUNT, ASK_CATEGORY, ASK_ACCOUNT, ASK_NOTE = range(4)
 ASK_INCOME_AMOUNT, ASK_INCOME_CATEGORY, ASK_INCOME_ACCOUNT, ASK_INCOME_NOTE = range(10, 14)
 BUDGET_CATEGORY, BUDGET_AMOUNT = range(20, 22)
 
-PENDING_KEYS = ("pending_amount", "pending_category", "pending_account", "used_default", "pending_budget_category")
+PENDING_KEYS = ("pending_amount", "pending_category", "pending_account", "used_default", "pending_budget_category",
+                "editing")
 
 
 def clear_pending(context: ContextTypes.DEFAULT_TYPE):
@@ -351,7 +352,8 @@ async def history_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{date}  {sign}{r['amount']:.2f}  {esc(label_for(r['category'], type_))} · "
             f"{esc(account_label(r['account']))}{note}"
         )
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🗑️ Delete", callback_data=f"del_{r['id']}")]])
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("✏️ Edit", callback_data=f"edit:{r['id']}"),
+                                    InlineKeyboardButton("🗑️ Delete", callback_data=f"del_{r['id']}")]])
         await update.effective_message.reply_text(text, reply_markup=kb)
 
 

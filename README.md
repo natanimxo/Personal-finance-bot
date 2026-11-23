@@ -12,7 +12,7 @@ Everything works through buttons — there are no commands to type besides
 | --- | --- |
 | ➕ Add Expense | Type the amount → pick a category → pick an account (skipped when you have a ⭐ default; the confirmation then offers 🔁 Change account) → add a note or skip |
 | 💵 Add Income | Same flow, with income categories (Salary, Freelance, Business, Gift, Other) |
-| 📋 History | Your last 10 transactions (income marked +, expenses −), each with a 🗑️ Delete button |
+| 📋 History | Your last 10 transactions (income marked +, expenses −), each with ✏️ Edit (amount, category, account, note) and 🗑️ Delete |
 | 📊 Summary | Income, expenses, net and savings rate (net ÷ income, shown when there is income) for this week (from Monday) or this month (from the 1st), plus spending by category |
 | 💰 Budgets | Set a monthly limit per expense category. You're warned at 80% and when you go over |
 | 🏦 Accounts | Balance per account (Cash, Bank, Card, Mobile Wallets) and your ⭐ default account, which new entries use without asking |

@@ -12,7 +12,7 @@ from telegram.ext import (
 from telegram.warnings import PTBUserWarning
 
 from app.bot import handlers as h
-from app.bot import quick
+from app.bot import edit, quick
 from app.bot.keyboards import (
     BTN_ACCOUNTS, BTN_ADD, BTN_ADD_INCOME, BTN_BUDGETS, BTN_CANCEL, BTN_HELP, BTN_HISTORY, BTN_SUMMARY,
     CB_FLOW_CANCEL, FLOW_TEXT, MENU_BUTTONS,
@@ -38,6 +38,7 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 MessageHandler(filters.Text([BTN_ADD]), h.add_start),
                 MessageHandler(filters.Text([BTN_ADD_INCOME]), h.add_income_start),
                 CallbackQueryHandler(h.budget_start, pattern="^set_budget_start$"),
+                CallbackQueryHandler(edit.edit_text_start, pattern=r"^edf:(amount|note):\d+$"),
             ],
             states={
                 h.ASK_AMOUNT: [MessageHandler(FLOW_TEXT, h.add_amount_received)],
@@ -56,6 +57,7 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 ],
                 h.BUDGET_CATEGORY: [CallbackQueryHandler(h.budget_category_chosen, pattern="^budgetcat_")],
                 h.BUDGET_AMOUNT: [MessageHandler(FLOW_TEXT, h.budget_amount_received)],
+                edit.EDIT_TEXT: [MessageHandler(FLOW_TEXT, edit.edit_text_received)],
                 ConversationHandler.TIMEOUT: [
                     MessageHandler(filters.ALL, h.conversation_timeout),
                     CallbackQueryHandler(h.conversation_timeout),
@@ -103,6 +105,13 @@ def register_handlers(app, flow_timeout: int = FLOW_TIMEOUT):
     app.add_handler(CallbackQueryHandler(h.change_account_start, pattern=r"^chacc:\d+$"))
     app.add_handler(CallbackQueryHandler(h.change_account_chosen, pattern=r"^setacc:\d+:\w+$"))
     app.add_handler(CallbackQueryHandler(h.stale_cancel, pattern=f"^{CB_FLOW_CANCEL}$"))
+
+    # Editing a saved entry (History ✏️ Edit). Typed fields are part of the flow above.
+    app.add_handler(CallbackQueryHandler(edit.edit_start, pattern=r"^edit:\d+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_done, pattern=r"^eddone:\d+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_category_menu, pattern=r"^edcat:\d+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_account_menu, pattern=r"^edacc:\d+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_set_choice, pattern=r"^edset(cat|acc):\d+:\w+$"))
 
     # Quick entry: a plain message that starts with an amount ("500 food lunch").
     # Registered after the flows, so a number typed as a flow's answer goes to the flow.
