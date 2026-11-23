@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from app.db import get_conn
+from app.services.periods import to_db
 
 
 def get_budget(user_id: int, category: str):
@@ -33,6 +34,6 @@ def month_total_for_category(user_id: int, category: str, since: datetime):
         row = conn.execute(
             "SELECT SUM(amount) as total FROM expenses "
             "WHERE user_id = ? AND category = ? AND type = 'expense' AND created_at >= ?",
-            (user_id, category.lower(), since.isoformat()),
+            (user_id, category.lower(), to_db(since)),
         ).fetchone()
         return row["total"] or 0

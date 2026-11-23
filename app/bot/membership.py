@@ -1,31 +1,22 @@
-import html
+"""The channel-membership gate."""
 import logging
 from functools import wraps
 
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    ReplyKeyboardMarkup,
-)
-from telegram.constants import ParseMode
-from telegram.ext import ConversationHandler, ContextTypes, filters
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ContextTypes
 
-from app.config import REQUIRED_CHANNEL, CHANNEL_INVITE_LINK
+from app import config
+from app.bot.keyboards import esc, main_menu_keyboard
 from app.services import users
-from app.bot.keyboards import main_menu_keyboard
 
 logger = logging.getLogger(__name__)
 
 VALID_STATUSES = {"member", "administrator", "creator"}
 
 
-# ---------------------------------------------------------------------------
-# Subscription gate
-# ---------------------------------------------------------------------------
 async def is_subscribed(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
     try:
-        member = await context.bot.get_chat_member(REQUIRED_CHANNEL, user_id)
+        member = await context.bot.get_chat_member(config.REQUIRED_CHANNEL, user_id)
         return member.status in VALID_STATUSES
     except Exception as e:
         logger.warning(f"Subscription check failed for {user_id}: {e}")
@@ -34,28 +25,27 @@ async def is_subscribed(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> boo
 
 def gate_keyboard():
     buttons = []
-    if CHANNEL_INVITE_LINK:
-        buttons.append([InlineKeyboardButton("📢 Join the channel", url=CHANNEL_INVITE_LINK)])
+    if config.CHANNEL_INVITE_LINK:
+        buttons.append([InlineKeyboardButton("📢 Join the channel", url=config.CHANNEL_INVITE_LINK)])
     buttons.append([InlineKeyboardButton("✅ I've subscribed", callback_data="recheck_sub")])
     return InlineKeyboardMarkup(buttons)
 
 
-GATE_TEXT = (
-    "🔒 <b>Welcome to your expense tracker!</b>\n\n"
-    "Here's what I do:\n"
-    "• Log spending in 3 taps\n"
-    "• Warn you the moment you're near a budget\n"
-    "• Send you a spending recap every Monday\n\n"
-    "This bot is free — you just need to join my channel first:\n"
-    f"{html.escape(CHANNEL_INVITE_LINK)}\n\n"
-    "Then tap ✅ below."
-)
+def gate_text() -> str:
+    return (
+        "🔒 <b>Welcome to your expense tracker!</b>\n\n"
+        "Here's what I do:\n"
+        "• Log spending in 3 taps\n"
+        "• Warn you the moment you're near a budget\n"
+        "• Send you a spending recap every Monday\n\n"
+        "This bot is free — you just need to join my channel first:\n"
+        f"{esc(config.CHANNEL_INVITE_LINK)}\n\n"
+        "Then tap ✅ below."
+    )
 
 
 async def send_gate(update: Update):
-    await update.effective_message.reply_text(
-        GATE_TEXT, reply_markup=gate_keyboard(), parse_mode=ParseMode.HTML
-    )
+    await update.effective_message.reply_text(gate_text(), reply_markup=gate_keyboard())
 
 
 def require_subscription(handler):

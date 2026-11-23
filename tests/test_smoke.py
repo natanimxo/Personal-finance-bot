@@ -52,14 +52,10 @@ def test_migrations_run_once(fresh_db):
     assert db.run_migrations() == []
 
 
-def test_app_builds(fresh_db, monkeypatch):
-    from telegram.ext import Application
+def test_app_builds(fresh_db):
+    from app.main import build_application
+    from app.services.recap import send_weekly_recap
 
-    import app.main as main_module
-
-    captured = {}
-    monkeypatch.setattr(Application, "run_polling", lambda self, *a, **k: captured.setdefault("app", self))
-    main_module.main()
-    application = captured["app"]
+    application = build_application()
     assert sum(len(h) for h in application.handlers.values()) > 10
-    assert any(j.callback is main_module.send_weekly_recap for j in application.job_queue.jobs())
+    assert any(j.callback is send_weekly_recap for j in application.job_queue.jobs())

@@ -1,16 +1,11 @@
-from datetime import datetime
+"""Button labels, categories, accounts and keyboards. All bot text is sent as HTML."""
+import html
 
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    ReplyKeyboardMarkup,
-)
-from telegram.constants import ParseMode
-from telegram.ext import ConversationHandler, ContextTypes, filters
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram.ext import filters
 
 # ---------------------------------------------------------------------------
-# Menu layout
+# Main menu
 # ---------------------------------------------------------------------------
 BTN_ADD = "➕ Add Expense"
 BTN_ADD_INCOME = "💵 Add Income"
@@ -21,6 +16,13 @@ BTN_ACCOUNTS = "🏦 Accounts"
 BTN_HELP = "❓ Help"
 BTN_CANCEL = "❌ Cancel"
 
+MENU_BUTTONS = [BTN_ADD, BTN_ADD_INCOME, BTN_HISTORY, BTN_SUMMARY, BTN_BUDGETS, BTN_ACCOUNTS, BTN_HELP]
+MENU_OR_CANCEL = filters.Text(MENU_BUTTONS + [BTN_CANCEL])
+# Free text typed during a guided flow (amount / note), excluding commands and buttons.
+FLOW_TEXT = filters.TEXT & ~filters.COMMAND & ~MENU_OR_CANCEL
+
+CB_FLOW_CANCEL = "flow_cancel"
+
 ACCOUNTS = [
     ("cash", "💵 Cash"),
     ("bank", "🏦 Bank"),
@@ -28,17 +30,6 @@ ACCOUNTS = [
     ("mobile_money", "📱 Mobile Wallets"),
 ]
 ACCOUNT_LABELS = dict(ACCOUNTS)
-
-
-def account_keyboard(prefix: str, default: str = None):
-    """Account picker. The default account (if given) comes first, marked with ⭐."""
-    ordered = sorted(ACCOUNTS, key=lambda a: a[0] != default) if default else ACCOUNTS
-    buttons = [
-        InlineKeyboardButton(f"⭐ {label}" if key == default else label, callback_data=f"{prefix}_{key}")
-        for key, label in ordered
-    ]
-    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
-    return InlineKeyboardMarkup(rows)
 
 CATEGORIES = [
     ("food", "🍔 Food"),
@@ -59,17 +50,34 @@ INCOME_CATEGORIES = [
 ]
 INCOME_CATEGORY_LABELS = dict(INCOME_CATEGORIES)
 
+MINUS = "−"  # a real minus sign, not a hyphen
+
+
+def esc(value) -> str:
+    """Escape any dynamic value before it goes into an HTML message."""
+    return html.escape(str(value), quote=False)
+
 
 def label_for(category_key: str, type_: str) -> str:
     table = INCOME_CATEGORY_LABELS if type_ == "income" else CATEGORY_LABELS
     return table.get(category_key, f"📦 {category_key}")
 
 
-ASK_AMOUNT, ASK_CATEGORY, ASK_ACCOUNT, ASK_NOTE = range(4)
-ASK_INCOME_AMOUNT, ASK_INCOME_CATEGORY, ASK_INCOME_ACCOUNT, ASK_INCOME_NOTE = range(10, 14)
-BUDGET_CATEGORY, BUDGET_AMOUNT = range(20, 22)
+def account_label(account_key: str) -> str:
+    return ACCOUNT_LABELS.get(account_key, account_key)
 
 
+def parse_amount(text: str) -> float:
+    """Accepts 12.50, 1,200 or 1 200. Raises ValueError for anything else or <= 0."""
+    amount = float(text.strip().replace(",", "").replace(" ", ""))
+    if amount <= 0 or amount != amount or amount == float("inf"):
+        raise ValueError
+    return amount
+
+
+# ---------------------------------------------------------------------------
+# Keyboards
+# ---------------------------------------------------------------------------
 def main_menu_keyboard():
     return ReplyKeyboardMarkup(
         [[BTN_ADD, BTN_ADD_INCOME], [BTN_HISTORY, BTN_SUMMARY], [BTN_BUDGETS, BTN_ACCOUNTS], [BTN_HELP]],
@@ -81,37 +89,34 @@ def cancel_keyboard():
     return ReplyKeyboardMarkup([[BTN_CANCEL]], resize_keyboard=True)
 
 
-MENU_BUTTONS = [BTN_ADD, BTN_ADD_INCOME, BTN_HISTORY, BTN_SUMMARY, BTN_BUDGETS, BTN_ACCOUNTS, BTN_HELP]
-MENU_OR_CANCEL = filters.Text(MENU_BUTTONS + [BTN_CANCEL])
-# Free text typed during a guided flow (amount / note), excluding commands and buttons.
-FLOW_TEXT = filters.TEXT & ~filters.COMMAND & ~MENU_OR_CANCEL
+def _grid(buttons, with_cancel: bool):
+    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
+    if with_cancel:
+        rows.append([InlineKeyboardButton(BTN_CANCEL, callback_data=CB_FLOW_CANCEL)])
+    return InlineKeyboardMarkup(rows)
 
 
-def parse_amount(text: str) -> float:
-    """Accepts 12.50, 1,200 or 1 200. Raises ValueError for anything else or <= 0."""
-    amount = float(text.strip().replace(",", "").replace(" ", ""))
-    if amount <= 0 or amount != amount or amount == float("inf"):
-        raise ValueError
-    return amount
-
-
-def month_start() -> datetime:
-    return datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+def account_keyboard(prefix: str, default: str = None, with_cancel: bool = True, sep: str = "_"):
+    """Account picker; the default account (if any) is marked with ⭐."""
+    buttons = [
+        InlineKeyboardButton(f"⭐ {label}" if key == default else label, callback_data=f"{prefix}{sep}{key}")
+        for key, label in ACCOUNTS
+    ]
+    return _grid(buttons, with_cancel)
 
 
 def category_keyboard(prefix: str):
-    buttons = [
-        InlineKeyboardButton(label, callback_data=f"{prefix}_{key}")
-        for key, label in CATEGORIES
-    ]
-    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
-    return InlineKeyboardMarkup(rows)
+    buttons = [InlineKeyboardButton(label, callback_data=f"{prefix}_{key}") for key, label in CATEGORIES]
+    return _grid(buttons, with_cancel=True)
 
 
 def income_category_keyboard(prefix: str):
-    buttons = [
-        InlineKeyboardButton(label, callback_data=f"{prefix}_{key}")
-        for key, label in INCOME_CATEGORIES
-    ]
-    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
-    return InlineKeyboardMarkup(rows)
+    buttons = [InlineKeyboardButton(label, callback_data=f"{prefix}_{key}") for key, label in INCOME_CATEGORIES]
+    return _grid(buttons, with_cancel=True)
+
+
+def note_keyboard(skip_data: str):
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("⏭️ Skip", callback_data=skip_data),
+          InlineKeyboardButton(BTN_CANCEL, callback_data=CB_FLOW_CANCEL)]]
+    )

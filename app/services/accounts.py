@@ -1,12 +1,13 @@
 from app.db import get_conn
 
 
-def get_default_account(user_id: int) -> str:
+def get_default_account(user_id: int):
+    """The account the user picked as default, or None if they never picked one."""
     with get_conn() as conn:
         row = conn.execute(
             "SELECT default_account FROM user_settings WHERE user_id = ?", (user_id,)
         ).fetchone()
-        return row["default_account"] if row else "cash"
+        return row["default_account"] if row else None
 
 
 def set_default_account(user_id: int, account: str):
