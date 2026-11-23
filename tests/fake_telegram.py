@@ -31,6 +31,7 @@ class FakeRequest(BaseRequest):
         self.too_many = 0              # 429s returned
         self._send_times = []
         self.delivered = []            # chat ids that really received a message
+        self.calls = []                # every (endpoint, params), in order
 
     async def initialize(self):
         pass
@@ -45,6 +46,7 @@ class FakeRequest(BaseRequest):
     async def do_request(self, url, method, request_data=None, **kwargs):
         endpoint = url.rsplit("/", 1)[1]
         params = request_data.parameters if request_data else {}
+        self.calls.append((endpoint, params))
         if endpoint == "getMe":
             result = {"id": 1, "is_bot": True, "first_name": "Bot", "username": "bot"}
         elif endpoint == "getChatMember":

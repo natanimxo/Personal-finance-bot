@@ -1,4 +1,4 @@
-"""Starts the bot. (Phase 3 adds the web server and webhook; for now it polls.)"""
+"""Builds the bot Application; main() starts the web server that runs it (app/web/server.py)."""
 import logging
 import os
 from datetime import time
@@ -25,20 +25,7 @@ RECAP_DAYS = (1,)
 BACKUP_TIME = time(hour=3, minute=0)
 
 
-async def _start_health(app: Application):
-    from app.web.health import start_health_server
-
-    app.bot_data["health_server"] = await start_health_server(config.PORT)
-
-
-async def _stop_health(app: Application):
-    server = app.bot_data.pop("health_server", None)
-    if server:
-        server.close()
-        await server.wait_closed()
-
-
-def build_application(request=None, flow_timeout: int = FLOW_TIMEOUT, health_server: bool = False) -> Application:
+def build_application(request=None, flow_timeout: int = FLOW_TIMEOUT) -> Application:
     tz = ZoneInfo(config.APP_TIMEZONE)
     builder = (
         Application.builder()
@@ -50,8 +37,6 @@ def build_application(request=None, flow_timeout: int = FLOW_TIMEOUT, health_ser
     )
     if request is not None:
         builder = builder.request(request).get_updates_request(request)
-    if health_server:
-        builder = builder.post_init(_start_health).post_shutdown(_stop_health)
     app = builder.build()
     register_handlers(app, flow_timeout)
     app.job_queue.run_daily(send_weekly_recap, time=RECAP_TIME.replace(tzinfo=tz), days=RECAP_DAYS, name="weekly_recap")
@@ -73,13 +58,14 @@ def check_storage():
 
 
 def main():
+    """Serve the Mini App, API and webhook with uvicorn; the bot runs in the same event loop."""
     if not config.BOT_TOKEN:
         raise SystemExit("BOT_TOKEN is not set")
-    init_db()
-    check_storage()
-    app = build_application(health_server=True)
-    logger.info("Bot starting...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    import uvicorn
+
+    from app.web.server import create_app
+
+    uvicorn.run(create_app(), host="0.0.0.0", port=config.PORT, log_level="info", proxy_headers=True)
 
 
 if __name__ == "__main__":

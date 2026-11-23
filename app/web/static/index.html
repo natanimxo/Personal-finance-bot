@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <title>Expense Tracker</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main id="screen" aria-live="polite"></main>
+
+  <!-- Shown only outside Telegram (local preview), where MainButton has no native bar. -->
+  <button id="fallback-main" class="fallback-main" hidden></button>
+
+  <nav id="tabs" class="tabs" hidden>
+    <button data-route="home"><span class="ico">🏠</span><span>Home</span></button>
+    <button data-route="transactions"><span class="ico">📋</span><span>History</span></button>
+    <button data-route="budgets"><span class="ico">💰</span><span>Budgets</span></button>
+    <button data-route="accounts"><span class="ico">🏦</span><span>Accounts</span></button>
+    <button data-route="settings"><span class="ico">⚙️</span><span>Settings</span></button>
+  </nav>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>

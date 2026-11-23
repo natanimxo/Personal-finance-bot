@@ -15,17 +15,11 @@ from telegram.ext import ContextTypes
 
 from app.db import db_call
 from app.services import periods, summaries, users
+from app.services.catalog import CATEGORY_LABELS
 
 logger = logging.getLogger(__name__)
 
 RECAP_RATE = 25  # messages per second, below Telegram's ~30/s broadcast limit
-
-# Kept here (not imported from the bot package) so the service layer has no bot dependency.
-CATEGORY_LABELS = {
-    "food": "🍔 Food", "transport": "🚗 Transport", "bills": "🧾 Bills",
-    "shopping": "🛍️ Shopping", "fun": "🎉 Fun", "other": "📦 Other",
-}
-
 
 def recap_text(user_id: int, start: datetime, end: datetime):
     """HTML recap for start <= entry < end, or None when nothing was logged."""

@@ -1,9 +1,7 @@
 """Button labels, categories, accounts and keyboards. All bot text is sent as HTML."""
 import html
-import re
-from decimal import Decimal
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
 from telegram.ext import filters
 
 # ---------------------------------------------------------------------------
@@ -25,32 +23,13 @@ FLOW_TEXT = filters.TEXT & ~filters.COMMAND & ~MENU_OR_CANCEL
 
 CB_FLOW_CANCEL = "flow_cancel"
 
-ACCOUNTS = [
-    ("cash", "💵 Cash"),
-    ("bank", "🏦 Bank"),
-    ("card", "💳 Card"),
-    ("mobile_money", "📱 Mobile Wallets"),
-]
-ACCOUNT_LABELS = dict(ACCOUNTS)
-
-CATEGORIES = [
-    ("food", "🍔 Food"),
-    ("transport", "🚗 Transport"),
-    ("bills", "🧾 Bills"),
-    ("shopping", "🛍️ Shopping"),
-    ("fun", "🎉 Fun"),
-    ("other", "📦 Other"),
-]
-CATEGORY_LABELS = dict(CATEGORIES)
-
-INCOME_CATEGORIES = [
-    ("salary", "💼 Salary"),
-    ("freelance", "🧑‍💻 Freelance"),
-    ("business", "🏢 Business"),
-    ("gift", "🎁 Gift"),
-    ("other", "📦 Other"),
-]
-INCOME_CATEGORY_LABELS = dict(INCOME_CATEGORIES)
+from app.services.catalog import (  # noqa: E402  (one list for the bot and the Mini App)
+    ACCOUNT_LABELS, ACCOUNTS, CATEGORIES, CATEGORY_LABELS, INCOME_CATEGORIES, INCOME_CATEGORY_LABELS,
+    account_label, label_for,
+)
+from app.services.validation import (  # noqa: E402,F401
+    MAX_AMOUNT, MAX_NOTE_LENGTH, AmountError, parse_amount,
+)
 
 MINUS = "−"  # a real minus sign, not a hyphen
 
@@ -60,47 +39,20 @@ def esc(value) -> str:
     return html.escape(str(value), quote=False)
 
 
-def label_for(category_key: str, type_: str) -> str:
-    table = INCOME_CATEGORY_LABELS if type_ == "income" else CATEGORY_LABELS
-    return table.get(category_key, f"📦 {category_key}")
-
-
-def account_label(account_key: str) -> str:
-    return ACCOUNT_LABELS.get(account_key, account_key)
-
-
-MAX_AMOUNT = 100_000_000
-MAX_NOTE_LENGTH = 200
-
-
-class AmountError(ValueError):
-    """A ValueError whose message is fit to show the user."""
-
-
-def parse_amount(text: str) -> float:
-    """Accepts 1500, 1,500, 1 500 and 1500.50. Positive, at most 2 decimal
-    places and at most MAX_AMOUNT; raises AmountError (a ValueError) otherwise."""
-    cleaned = text.strip().replace(",", "").replace(" ", "").replace(" ", "")
-    if not re.fullmatch(r"\d+(\.\d+)?|\.\d+", cleaned):
-        raise AmountError("That doesn't look like an amount.")
-    value = Decimal(cleaned)
-    if value <= 0:
-        raise AmountError("The amount has to be more than 0.")
-    if -value.as_tuple().exponent > 2 and value != value.quantize(Decimal("0.01")):
-        raise AmountError("Use at most 2 decimal places.")
-    if value > MAX_AMOUNT:
-        raise AmountError(f"That's more than the maximum of {MAX_AMOUNT:,}.")
-    return float(value)
-
-
 # ---------------------------------------------------------------------------
 # Keyboards
 # ---------------------------------------------------------------------------
+BTN_OPEN_APP = "📱 Open app"
+
+
 def main_menu_keyboard():
-    return ReplyKeyboardMarkup(
-        [[BTN_ADD, BTN_ADD_INCOME], [BTN_HISTORY, BTN_SUMMARY], [BTN_BUDGETS, BTN_ACCOUNTS], [BTN_HELP]],
-        resize_keyboard=True,
-    )
+    rows = [[BTN_ADD, BTN_ADD_INCOME], [BTN_HISTORY, BTN_SUMMARY], [BTN_BUDGETS, BTN_ACCOUNTS], [BTN_HELP]]
+    from app.web.server import mini_app_url
+
+    url = mini_app_url()
+    if url:  # Telegram only opens Mini Apps over https
+        rows[-1].append(KeyboardButton(BTN_OPEN_APP, web_app=WebAppInfo(url=url)))
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
 def cancel_keyboard():

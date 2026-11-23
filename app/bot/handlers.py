@@ -4,6 +4,7 @@ Every message goes out as HTML (the Application's default parse mode), and every
 dynamic value (notes, labels, links) is passed through esc() first.
 """
 import logging
+from datetime import datetime
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes, ConversationHandler
@@ -19,6 +20,7 @@ from app.bot.membership import is_subscribed, require_subscription, send_gate, t
 from app.db import db_call
 from app.services import accounts, budgets, periods, summaries, transactions, users
 from app.services.backup import run_backup
+from app.services.validation import to_minor
 from app.services.recap import recap_text
 
 logger = logging.getLogger(__name__)
@@ -175,17 +177,15 @@ def change_account_keyboard(entry_id: int):
     )
 
 
-async def budget_warning(user_id: int, category_key: str) -> str:
-    budget = await db_call(budgets.get_budget, user_id, category_key)
-    if not budget:
+def budget_warning_text(warning) -> str:
+    """The bot's wording for a warning from budgets.warning_for (shared with the Mini App)."""
+    if not warning:
         return ""
-    spent = await db_call(budgets.month_total_for_category, user_id, category_key, periods.month_start())
-    label = esc(label_for(category_key, "expense"))
-    if spent > budget:
-        return f"\n\n🚨 You're over budget on {label}: {spent:.2f} / {budget:.2f}"
-    if spent / budget * 100 >= 80:
-        return f"\n\n⚠️ {spent / budget * 100:.0f}% of your {label} budget used ({spent:.2f} / {budget:.2f})"
-    return ""
+    label = esc(warning["label"])
+    spent, limit = warning["spent_minor"] / 100, warning["limit_minor"] / 100
+    if warning["level"] == "over":
+        return f"🚨 You're over budget on {label}: {spent:.2f} / {limit:.2f}"
+    return f"⚠️ {warning['percent']}% of your {label} budget used ({spent:.2f} / {limit:.2f})"
 
 
 async def _finalize(update: Update, context: ContextTypes.DEFAULT_TYPE, note: str, type_: str):
@@ -195,12 +195,13 @@ async def _finalize(update: Update, context: ContextTypes.DEFAULT_TYPE, note: st
     category_key = context.user_data.pop("pending_category")
     account_key = context.user_data.pop("pending_account", "cash")
     used_default = context.user_data.pop("used_default", False)
-    entry_id = await db_call(transactions.add_expense, user_id, amount, category_key, note, type_=type_, account=account_key)
-
-    entry = await db_call(transactions.get_entry, user_id, entry_id)
+    entry, warning = await db_call(
+        transactions.add_entry, user_id, to_minor(amount), type_, category_key, account_key, note
+    )
+    entry_id = entry["id"]
     text = entry_line(entry)
-    if type_ == "expense":
-        text += await budget_warning(user_id, category_key)
+    if warning:
+        text += "\n\n" + budget_warning_text(warning)
 
     if used_default:
         await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=change_account_keyboard(entry_id))
@@ -375,31 +376,30 @@ async def summary_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text("Pick a period:", reply_markup=kb)
 
 
-async def summary_text(user_id: int, period: str) -> str:
-    if period == "month":
-        since, title = periods.month_start(), "This month"
-    else:
-        since, title = periods.week_start(), "This week"
-    income_total, expense_total = await db_call(summaries.totals_since, user_id, since)
-    net = income_total - expense_total
+def format_summary(data: dict) -> str:
+    since = datetime.fromisoformat(data["from"])
+    title = "This month" if data["period"] == "month" else "This week"
+    income, expense, net = data["income_minor"] / 100, data["expense_minor"] / 100, data["net_minor"] / 100
     lines = [
         f"📊 <b>{title}</b> (since {since:%a %d %b})",
-        f"💵 Income: {income_total:.2f}",
-        f"💸 Expenses: {expense_total:.2f}",
+        f"💵 Income: {income:.2f}",
+        f"💸 Expenses: {expense:.2f}",
         f"⚖️ Net: {net:+.2f}",
     ]
-    rate = periods.savings_rate(income_total, expense_total)
-    if rate is not None:
-        lines.append(f"💹 Savings rate: {rate:.0f}%")
+    if data["savings_rate"] is not None:
+        lines.append(f"💹 Savings rate: {data['savings_rate']:.0f}%")
     lines.append("")
-    rows, _ = await db_call(summaries.summary_since, user_id, since, type_="expense")
-    if rows:
+    if data["by_category"]:
         lines.append("<b>Expenses by category:</b>")
-        for r in rows:
-            lines.append(f"• {esc(label_for(r['category'], 'expense'))}: {r['total']:.2f} ({r['cnt']}x)")
+        for c in data["by_category"]:
+            lines.append(f"• {esc(c['label'])}: {c['total_minor'] / 100:.2f} ({c['count']}x)")
     else:
         lines.append("No expenses in this period.")
     return "\n".join(lines)
+
+
+async def summary_text(user_id: int, period: str) -> str:
+    return format_summary(await db_call(summaries.summary, user_id, period))
 
 
 async def summary_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

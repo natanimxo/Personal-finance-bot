@@ -127,8 +127,8 @@ def test_3_every_command_in_readme_exists():
     from app.main import build_application
 
     readme = (REPO / "README.md").read_text(encoding="utf-8")
-    # Exact `/command` spans; commands sent to @BotFather are not this bot's.
-    mentioned = set(re.findall(r"`/(\w+)`", readme)) - {"newbot", "revoke", "setcommands"}
+    # Exact `/command` spans; commands sent to @BotFather and HTTP paths are not this bot's.
+    mentioned = set(re.findall(r"`/(\w+)`", readme)) - {"newbot", "revoke", "setcommands", "healthz"}
     app = build_application()
     registered = set()
     for group in app.handlers.values():

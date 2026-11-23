@@ -132,8 +132,29 @@ def run_migrations():
     return done
 
 
+def check_amount_columns() -> bool:
+    """The float `amount` column is kept until it provably matches amount_minor.
+    Logs the result; returns True when every row and the totals agree."""
+    with get_conn() as conn:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(expenses)")]
+        if "amount_minor" not in cols:
+            return True
+        mismatched = conn.execute(
+            "SELECT COUNT(*) FROM expenses WHERE amount_minor IS NULL "
+            "OR amount_minor <> CAST(ROUND(amount * 100) AS INTEGER)"
+        ).fetchone()[0]
+        old_total, new_total = conn.execute(
+            "SELECT ROUND(COALESCE(SUM(amount), 0), 2), COALESCE(SUM(amount_minor), 0) FROM expenses"
+        ).fetchone()
+    ok = mismatched == 0 and round(old_total * 100) == new_total
+    log = logger.info if ok else logger.error
+    log("amount vs amount_minor: %d mismatched rows; totals %.2f vs %.2f", mismatched, old_total, new_total / 100)
+    return ok
+
+
 def init_db():
     folder = os.path.dirname(db_path())
     if folder:
         os.makedirs(folder, exist_ok=True)
     run_migrations()
+    check_amount_columns()
