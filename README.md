@@ -1,188 +1,216 @@
-# Personal Finance Telegram Bot
+# Personal Finance Bot + Mini App
 
-Track spending and income right inside Telegram. Users must be subscribed to
-your channel to use the bot — they're checked on every screen via Telegram's
-`getChatMember` API, so it can't be faked by leaving after joining.
+Track spending and income in Telegram: a **bot** for quick logging, and a
+**Mini App** (a web app that opens inside Telegram) with charts, filters and
+editing. Both share one database and one set of rules, so they never disagree.
+Users must be members of your channel. It runs as **one service on Railway**.
+
+- [What it does](#what-it-does) · [The bot](#the-bot) · [The Mini App](#the-mini-app)
+- [Configuration](#configuration) · [Local development](#local-development) · [Deploying](#deploying)
+- [How it works](#how-it-works) · [Backups and restore](#backups-and-restore) · [Tests](#tests)
 
 ## What it does
-Everything works through buttons — there are no commands to type besides
-`/start`, `/help` and `/cancel`.
+
+- Log expenses, income and transfers between accounts, for today or any past date.
+- One-line **quick entry**: `500 food lunch`, `+20000 salary`, `350 transport mpesa matatu`.
+- **Budgets** per category, with a warning at 80% and when you go over.
+- **Accounts** you name yourself (Cash, M-Pesa, Bank…), with balances and a default.
+- **Categories** you can add, rename and hide.
+- **Recurring** entries (rent, salary, subscriptions), logged automatically each week or month.
+- A **weekly recap** every Monday and a **monthly recap** on the 1st, compared with the period before.
+- **CSV export** that opens in Excel and Google Sheets.
+- Your own **currency**, shown like `KES 1,500`.
+
+## The bot
+
+### Main menu
 
 | Button | What happens |
 | --- | --- |
-| ➕ Add Expense | Type the amount → pick a category → pick an account (skipped when you have a ⭐ default; the confirmation then offers 🔁 Change account) → add a note or skip. The note step also has Today / Yesterday / 📅 Other date (Today unless you change it) |
-| 💵 Add Income | Same flow, with income categories (Salary, Freelance, Business, Gift, Other) |
+| ➕ Add Expense | Amount → category → account (skipped when you have a ⭐ default; the confirmation then offers 🔁 Change account) → note, with a date choice: Today (default), Yesterday or 📅 Other date |
+| 💵 Add Income | The same flow, with income categories |
 | 📋 History | One message, 10 entries a page (income +, expenses −, transfers 🔁), with ⬅️ Newer / Older ➡️ and a filter: All, Expenses, Income or Transfers. Tap an entry's number to open it, then ✏️ Edit (amount, category, account, date, note, 🔁 Repeat) or 🗑️ Delete |
-| 📊 Summary | Income, expenses, net and savings rate (net ÷ income, shown when there is income) for this week (from Monday) or this month (from the 1st), plus spending by category |
-| 💰 Budgets | Set a monthly limit per expense category. You're warned at 80% and when you go over |
-| 🏦 Accounts | Balance per account and your ⭐ default account (new entries use it without asking). 🔁 Transfer moves money between accounts (From → To → amount): both balances change, but it never counts as income or an expense. ➕ Add, ✏️ Rename and 🗄️ Archive accounts, and ♻️ restore archived ones. A rename or archive keeps the account's history and balance |
-| ⚙️ Settings | Your currency (amounts show as `KES 1,500`; pick from a list or type any 3-letter code), the weekly and monthly recaps on/off, 🏷️ Categories (add, rename, hide or show again, for expenses and income; a hidden category leaves the pickers but its past entries still count in summaries), 🔁 Recurring entries (stop any of them), and 📤 Export CSV. Also `/settings` and `/export` |
+| 📊 Summary | This week (from Monday) or this month (from the 1st): income, expenses, net, savings rate, and spending by category |
+| 💰 Budgets | Your monthly limits; set one per expense category |
+| 🏦 Accounts | Balance per account and your ⭐ default. 🔁 Transfer moves money between accounts (it never counts as income or an expense). ➕ Add, ✏️ Rename and 🗄️ Archive accounts, and ♻️ restore archived ones. History and balances always stay |
+| ⚙️ Settings | Currency (from a list, or any 3-letter code), weekly and monthly recaps on/off, 🏷️ Categories (add, rename, hide or show again; a hidden category's past entries still count), 🔁 Recurring entries (stop any), 📤 Export CSV |
 | ❓ Help | How the flow works |
+| 📱 Open app | Opens the Mini App (shown once the service has an https address) |
 
-- **Quick entry:** just send `500 food lunch`, `+20000 salary` or
-  `350 transport mpesa matatu`. The number comes first, and `+` means income.
-  Category and account words are matched case-insensitively (aliases like
-  lunch → Food, matatu → Transport, mpesa → Mobile Wallets), and the rest
-  becomes the note. With no category word you get the category buttons, with
-  the amount kept. Every quick entry has an ↩️ Undo button. The Mini App's
-  Home screen has the same box.
-- Everyone starts with these expense categories: Food, Transport, Bills, Shopping, Fun, Other (income: Salary,
-  Freelance, Business, Gift, Other), and can add their own. Quick entry matches your own category and account
-  names first, then the built-in aliases.
-- Amounts accept `12.50`, `1,200` or `1 200`.
-- Every step has a ❌ Cancel button (or send `/cancel`). Tapping any menu
-  button also ends a half-finished entry and opens that screen, and an
-  unfinished entry times out after 10 minutes.
-- Every **Monday at 08:00** (`APP_TIMEZONE`, default Africa/Nairobi) each
-  subscribed user who logged something gets a recap of the previous Monday–Sunday,
-  compared with the week before it (↑/↓ %) and naming the top category. On the
-  **1st at 08:00** a monthly recap covers the month that just ended. Each can be
-  turned off in ⚙️ Settings (bot or Mini App).
-- **CSV export:** 📤 in ⚙️ Settings (bot or Mini App) or `/export`. The bot
-  sends the file into the chat. It has one row per entry (date it happened,
-  type, category, account, to-account for transfers, amount, currency, note),
-  UTF-8 with a BOM, ISO dates and plain numbers (expenses negative), so it opens
-  correctly in Excel and Google Sheets.
-- **Recurring entries:** open an entry (📋 History → ✏️ Edit → 🔁 Repeat) and
-  pick Weekly or Monthly, or choose Repeat when adding one in the Mini App.
-  Every day at **06:00** (`APP_TIMEZONE`) the bot logs what is due, each copy
-  on its own date (a missed day is caught up), and messages you with ↩️ Undo.
-  A restart never creates a duplicate.
-- Weeks start Monday 00:00 and months on the 1st at 00:00, both in `APP_TIMEZONE`.
-  Summary, budgets and the recap all use the same periods, and they count an
-  entry by the date it **happened** (which can be in the past), not when it was logged.
-- Admin commands (only for `ADMIN_CHAT_ID`; anyone else gets no reply):
-  `/recap_now` (or `/recap_now month`) sends the admin a preview of their own recap, and
-  `/backup_now` makes a backup and sends it to the admin chat.
-- Errors are logged in full, and the admin gets a short alert (at most one a minute).
-- `GET /healthz` on `$PORT` answers 200 when the database responds, 503 when it doesn't.
+Every step of a flow has ❌ Cancel. Tapping any menu button also ends a
+half-finished entry and opens that screen, and an unfinished entry times out
+after 10 minutes.
 
-## 📱 The Mini App
-A web app that opens inside Telegram from the bot's **menu button** or the
-**📱 Open app** button in the main menu. It does everything the bot does, plus:
-- **Home:** this week or this month, with income, expenses, net, savings rate,
-  spending by category, budget bars and account balances.
-- **History:** every entry grouped by day, with infinite scroll, filters (type,
-  category, account, dates) and note search. Tap an entry to edit or delete it.
-- **Add / Edit:** amount, expense or income, category, account (your default
-  is preselected) and note.
-- **Budgets, Accounts and Settings:** set or remove limits, set the default
-  account, and change your currency and the weekly recap switch.
+### Quick entry
 
-There's no separate login: the app proves who you are with Telegram's signed
-`initData`, and the channel requirement applies there too. The bot and the app
-share one database and one set of rules (`app/services/`), so an entry added
-in either shows in both, and a budget warning from the app also arrives as a
-bot message.
+Send a message that starts with an amount:
 
-Try it locally without Telegram: `python scripts/preview_app.py`, then open the
-printed URL. It uses demo data and a fake Telegram.
+- `500 food lunch`: expense 500, Food, note "lunch"
+- `+20000 salary`: a leading `+` means income
+- `350 transport mpesa matatu`: Transport, from the M-Pesa account, note "matatu"
+- `500 food yesterday`: dated yesterday
 
-## 1. Create the bot
-1. Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, follow the prompts.
-2. Copy the token it gives you — that's `BOT_TOKEN`.
+Category and account words are matched case-insensitively. Your own names come
+first, then built-in aliases such as lunch → Food, matatu → Transport and
+mpesa → mobile money. The rest becomes the note. With no category word you get
+the category buttons, with the amount kept. Every quick entry has ↩️ Undo.
 
-## 2. Set up the subscription gate
-1. `CHANNEL_ID` = your channel's `@username` (must be public), or its numeric
-   chat ID if private (get this by forwarding a message from the channel to
-   [@JsonDumpBot](https://t.me/JsonDumpBot) or similar).
-2. **Add your bot as an admin of the channel** — this is required, otherwise
-   `getChatMember` calls will fail and the bot will refuse everyone.
-3. `CHANNEL_LINK` = the public `t.me/...` link people tap to join.
+### Commands
 
-## 3. Environment variables
+- `/start`: the welcome message and menu
+- `/help`: how it works
+- `/cancel`: drop a half-finished entry
+- `/settings`: the ⚙️ Settings screen
+- `/export`: get your CSV now
+
+Admin only (the `ADMIN_CHAT_ID` account; anyone else gets no reply):
+
+- `/recap_now`: a preview of your own weekly recap (`/recap_now month` for the monthly one)
+- `/backup_now`: make a backup and send it to the admin chat
+- **Restore:** send a `.db` or `.db.gz` file with the caption /restore (see [Backups and restore](#backups-and-restore))
+
+### Messages the bot sends by itself
+
+| When (in `APP_TIMEZONE`) | What |
+| --- | --- |
+| Monday 08:00 | Weekly recap for the previous Monday–Sunday: income and expenses with ↑/↓ % vs the week before, net, savings rate, top category |
+| The 1st, 08:00 | Monthly recap for the month that just ended, compared with the month before |
+| Daily 06:00 | Recurring entries that are due, each with ↩️ Undo |
+| Daily 03:00 | A database backup to the admin chat |
+| When you add or edit an expense | A budget warning at 80% and when you go over, also for entries made in the Mini App |
+
+Each recap can be switched off in Settings. Recaps are rate-limited and never
+sent twice, even if the service restarts halfway.
+
+## The Mini App
+
+Opens from the bot's **menu button** or **📱 Open app**. There's no separate
+login: Telegram's signed `initData` proves who you are, and the channel
+requirement applies here too.
+
+| Screen | What you can do |
+| --- | --- |
+| Home | This week / this month: income, expenses, net, savings rate, spending by category, budget bars, account balances, and a quick-add box (with Undo) |
+| History | Every entry grouped by day, loading more as you scroll. Filter by type, category, account and dates, and search notes. Tap an entry to edit or delete it |
+| Add / Edit | Expense, income or transfer; amount, category, account (default preselected), date (today unless changed), note, and Repeat weekly or monthly |
+| Budgets | Each category's limit and this month's progress; set or remove a limit |
+| Accounts | Balances; add, rename, archive or restore; set the default |
+| Settings | Currency, both recaps, categories, recurring entries, and Export CSV (sent to your chat) |
+
+It follows Telegram's light or dark theme and uses Telegram's main and back
+buttons. Try it locally without Telegram: `python scripts/preview_app.py`.
+
+## Configuration
+
+Set these on Railway (Variables) or, locally, in a `.env` file (see
+`.env.example`). Real environment variables always win over `.env`.
+
 | Variable | Required | Meaning |
 | --- | --- | --- |
-| `BOT_TOKEN` | yes | Token from BotFather |
-| `CHANNEL_ID` | yes | `@username` or numeric ID of the channel users must join (old name `REQUIRED_CHANNEL` still works) |
-| `CHANNEL_LINK` | yes | Link shown on the "join the channel" screen (old name `CHANNEL_INVITE_LINK` still works) |
-| `DEFAULT_ACCOUNTS` | no | Accounts a new user starts with (default `Cash,M-Pesa,Bank,Card`; existing users keep their own) |
-| `APP_TIMEZONE` | no | Timezone for weeks, months and the recap (default `Africa/Nairobi`) |
-| `ADMIN_CHAT_ID` | no | Telegram id allowed to use `/recap_now` |
+| `BOT_TOKEN` | yes | Token from @BotFather |
+| `CHANNEL_ID` | yes | `@username` or numeric id of the channel users must join (old name `REQUIRED_CHANNEL` still works). **Add the bot as an admin of the channel**, or every check fails |
+| `CHANNEL_LINK` | yes | The join link shown to non-members (old name `CHANNEL_INVITE_LINK` still works) |
+| `WEBHOOK_SECRET` | in production | 32+ random characters; Telegram sends it with every update |
 | `PUBLIC_URL` | for the Mini App | Base https URL. Default: `https://$RAILWAY_PUBLIC_DOMAIN` |
-| `WEBHOOK_SECRET` | for webhook mode | 32+ random characters; Telegram sends it with every update |
-| `USE_POLLING` | no | `true` for local development (no webhook) |
-| `DB_PATH` | no | Where the SQLite database lives. Default: `$RAILWAY_VOLUME_MOUNT_PATH/expenses.db`, else an existing `./finance_bot.db`, else `./data/expenses.db` |
+| `ADMIN_CHAT_ID` | no | Your Telegram id: backups, error alerts, admin commands |
+| `APP_TIMEZONE` | no | For weeks, months, recaps and jobs (default `Africa/Nairobi`) |
+| `DEFAULT_CURRENCY` | no | Currency for new users (default `KES`) |
+| `DEFAULT_ACCOUNTS` | no | Accounts a new user starts with (default `Cash,M-Pesa,Bank,Card`; existing users keep their own) |
+| `DB_PATH` | no | Database file. Default: `$RAILWAY_VOLUME_MOUNT_PATH/expenses.db`, else an existing `./finance_bot.db`, else `./data/expenses.db` |
+| `USE_POLLING` | no | `true` for local development (no webhook needed) |
+| `PORT` | no | Set by Railway (default 8000) |
 
-`.env.example` lists every variable, including the ones later phases use.
+## Local development
 
-## 4. Run locally (optional, to test first)
 ```bash
 python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
+source venv/bin/activate             # Windows: venv\Scripts\activate
 pip install -r requirements-dev.txt
-cp .env.example .env           # then fill in your real values
-export $(cat .env | xargs)    # Windows PowerShell: set each one with $env:BOT_TOKEN="..."
-python -m app.main
-pytest                        # run the tests
+cp .env.example .env                 # fill in BOT_TOKEN, CHANNEL_ID, CHANNEL_LINK
+echo USE_POLLING=true >> .env        # no webhook or public URL needed locally
+python -m app.main                   # the bot, plus the API and Mini App on http://localhost:8000
+pytest                               # the tests
+python scripts/preview_app.py        # the Mini App with demo data and a fake Telegram
+python scripts/load_test.py          # 1,000 simulated users (about 2 minutes)
 ```
-`.env` and `finance_bot.db` are in `.gitignore` — never commit your real token.
 
-## 5. Deploy on Railway
-1. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo** → pick this repo
-   (the default branch is `main`).
-2. Railway builds the `Dockerfile` and runs `python -m app.main`.
-3. In your service's **Variables** tab add `BOT_TOKEN`, `CHANNEL_ID` and `CHANNEL_LINK` (a service that already has `REQUIRED_CHANNEL` and `CHANNEL_INVITE_LINK` keeps working).
-4. **Important — persistent storage:** Railway's filesystem resets on every
-   redeploy, which would wipe the SQLite database. Go to **Settings → Volumes →
-   New Volume**, mount it at `/app/data`, and add the variable
-   `DB_PATH=/app/data/finance_bot.db`. No code change is needed.
-5. Deploy. Check **Deployments → Logs** for `Bot starting...` to confirm it's live.
+Use a separate **test bot** from @BotFather for local work, not the live one.
 
-## How it runs
-One process: uvicorn serves FastAPI (`app/web/server.py`) on `$PORT` with the
-JSON API at `/api/*`, the Telegram webhook at `/telegram/webhook`, `/healthz`,
-and the Mini App's files at `/`. The bot runs in the same event loop.
-- **Webhook mode** (production) needs `WEBHOOK_SECRET` and an https `PUBLIC_URL`.
-  At startup the app registers the webhook and the menu button; doing that
-  again on every start is harmless.
-- **Polling mode**: with `USE_POLLING=true`, or automatically (with a warning
-  in the logs) while `WEBHOOK_SECRET` or a public https URL is missing. An
-  existing deployment therefore keeps working before those are set. The Mini
-  App needs the https URL.
-- Amounts are stored as whole cents (`amount_minor`). The old `amount` column
-  is still written, and every start logs whether the two agree.
+## Deploying
+
+**Follow [docs/DEPLOY.md](docs/DEPLOY.md).** It covers rescuing the current data
+before the first redeploy, the volume, the domain, the variables, putting the
+data back with /restore, a phone test, and the final checklist.
+
+Railway settings live in `railway.json`: built from the `Dockerfile`, health
+check `/healthz`, exactly **one replica**, restart on failure. The same Docker
+image runs on any VPS.
+
+## How it works
+
+```
+app/
+  main.py         builds the bot (handlers, jobs) and starts the web server
+  config.py       every environment variable (and .env for local development)
+  db.py           SQLite connections, WAL settings, numbered migrations
+  migrations/     001_initial.sql ... 009_monthly_recap.sql, applied in order, once
+  services/       all the rules: entries, budgets, accounts, categories, periods,
+                  summaries, quick entry, recurring, recaps, backups, export
+  bot/            Telegram handlers, keyboards, conversations, membership check
+  web/            FastAPI: initData auth, JSON API, webhook, /healthz, the Mini App files
+scripts/          preview_app.py, load_test.py
+tests/            pytest, driving the real handlers against a fake Telegram
+```
+
+- **One process:** uvicorn serves FastAPI on `$PORT`: the JSON API at `/api/*`,
+  the Telegram webhook at `/telegram/webhook` (checked against
+  `WEBHOOK_SECRET`), `/healthz`, and the Mini App at `/`. The bot runs in the same
+  event loop. Without `WEBHOOK_SECRET` or an https address it falls back to
+  polling, with a warning.
+- **One set of rules:** the bot handlers and the API both call `app/services/`.
+- **Money** is stored as whole cents (`amount_minor`), so totals are exact.
+  Entries keep two dates: when the money moved (`occurred_at`, used everywhere)
+  and when it was logged (`created_at`).
+- **Migrations** are numbered SQL files, applied in order and recorded in
+  `schema_version`. They only add; nothing is dropped or rewritten. Before the
+  first pending migration runs on a database with data, an untouched copy is
+  saved to `backups/pre-migration-*.db`.
+- **Exactly one replica:** SQLite is a single file on one volume and can't be
+  shared between replicas. It's comfortable to about 10,000 active users; past
+  that, move to Postgres.
+- **At about 1,000 users:** membership checks are cached for 15 minutes (only a
+  "member" answer is cached, and ✅ I've subscribed always checks live). Only
+  sending calls are rate-limited, and the recap sends at most 25 messages a
+  second. Users who block the bot are skipped until they write again. SQLite
+  runs in WAL mode with a 5-second busy timeout, and database work never blocks
+  the event loop.
+- **Mini App files** are sent with `Cache-Control: no-cache`, so a deploy is never
+  hidden behind a stale cached copy.
 
 ## Backups and restore
-- Every day at **03:00** (`APP_TIMEZONE`) the bot writes
-  `backups/expenses-YYYY-MM-DD.db` next to the database, using SQLite's backup
-  API (safe while the bot is running). It keeps the newest 7 daily copies plus
-  one copy for each of the 4 weeks before them.
-- A gzipped copy is also sent to `ADMIN_CHAT_ID`, so a backup exists off the
-  server. `/backup_now` does the same on demand.
-- Before any database migration runs, a `backups/pre-migration-*.db` copy is
-  written first. These are never deleted automatically.
 
-**To restore** (stop the bot first, so nothing writes while the file is replaced):
-1. Get the backup: a `backups/expenses-YYYY-MM-DD.db` file, or the `.db.gz` from the admin chat.
-2. Run `python -m app.services.backup restore <backup file> [target]`. It
-   unzips if needed, removes stale `-wal`/`-shm` files, writes the file to
-   `DB_PATH` (or `target`), and checks it is an expense-bot database.
-   On Railway, use the service's shell, or upload the file to the volume.
-3. Start the bot. Its migrations bring an older backup up to the current schema.
+- **Every day at 03:00** the app writes `backups/expenses-YYYY-MM-DD.db` next to
+  the database, using SQLite's backup API (safe while running). It keeps 7 daily
+  and 4 weekly copies, and also sends a gzipped copy to `ADMIN_CHAT_ID`.
+  `/backup_now` does the same at any time.
+- **Restore from Telegram (admin):** send the `.db` or `.db.gz` file to the bot
+  with the caption /restore. It checks the file, saves the current database
+  first (`backups/pre-restore-*.db`), copies the file in, upgrades it with the
+  migrations, and replies with the counts. A bad file changes nothing.
+- **Restore on the server** (bot stopped):
+  `python -m app.services.backup restore <file.db|file.db.gz> [target]`.
 
-## Running at about 1,000 users
-- Membership checks are cached for 15 minutes per member. A "not a member"
-  answer is never cached, and "✅ I've subscribed" always checks live. If
-  Telegram's check fails, the last known answer is used, so a Telegram hiccup
-  doesn't lock members out.
-- Only calls that send messages are rate-limited (Telegram allows about 30 a
-  second); the recap sends at most 25 a second. Each user's last recap week is
-  stored, so a restart in the middle of a recap never sends anyone a duplicate.
-- A user who blocks the bot is marked inactive and skipped; they become active
-  again the next time they write to it.
-- SQLite runs in WAL mode with a 5 s busy timeout, and every database call runs
-  off the event loop. `python scripts/load_test.py` checks all of this with
-  1,000 simulated users (about 2 minutes, temporary database only).
-- Run exactly **one** replica: SQLite can't be shared between replicas.
+## Tests
+
+`pytest` runs about 240 tests in roughly 2½ minutes. They drive the real
+handlers and API against a fake Telegram, and reject any message that isn't
+valid Telegram HTML. They cover the 9 original bug fixes, periods and
+timezones, quick entry, budget thresholds at 80% and 100%, initData validation,
+one user trying to reach another's entries, every API endpoint, migrations from
+the very first schema with no data lost, backup and restore, recaps, recurring
+entries, transfers and the CSV export.
 
 ## Cost
-- Telegram Bot API: free
-- Railway: free trial credit, then usage-based (a small worker like this
-  typically runs a few dollars a month)
-- No other external APIs, so there's no per-user or per-message cost.
 
-## Notes
-- The subscription check calls Telegram on every screen, so there's no way
-  to fake being subscribed. Someone who leaves the channel is locked out again
-  on their next tap.
+The Telegram Bot API is free. On Railway's Hobby plan, expect about $5–8 a month
+at 1,000 users. No other paid APIs are used.

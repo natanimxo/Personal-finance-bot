@@ -619,3 +619,34 @@ async def backup_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     path = await run_backup(context.bot)
     await update.effective_message.reply_text(f"🗄️ Backup written: <code>{esc(path)}</code>")
+
+
+RESTORE_MAX_BYTES = 20 * 1024 * 1024  # what a bot can download from Telegram
+
+
+async def restore_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin only: a .db / .db.gz file sent with the caption /restore replaces the
+    database (after a safety copy). Used to bring rescued data onto a new volume."""
+    if not is_admin(update):
+        return
+    from app.services.backup import restore_live
+
+    doc = update.message.document
+    if doc.file_size and doc.file_size > RESTORE_MAX_BYTES:
+        await update.message.reply_text("That file is over 20 MB, which bots can't download. Use the restore command on the server.")
+        return
+    await update.message.reply_text("⏳ Checking the file…")
+    data = bytes(await (await doc.get_file()).download_as_bytearray())
+    try:
+        result = await db_call(restore_live, data)
+    except ValueError as e:
+        await update.message.reply_text(f"❌ Not restored: {esc(e)}. Nothing was changed.")
+        return
+    c = result["counts"]
+    await update.message.reply_text(
+        f"✅ Restored: {c['expenses']} entries, {c['users']} users, {c['budgets']} budgets.\n"
+        f"Migrations applied: {len(result['migrations'])}.\n"
+        + (f"The previous database was saved first: <code>{esc(result['safety_copy'])}</code>"
+           if result["safety_copy"] else "")
+    )
+

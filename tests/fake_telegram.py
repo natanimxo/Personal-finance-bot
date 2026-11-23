@@ -33,6 +33,7 @@ class FakeRequest(BaseRequest):
         self.delivered = []            # chat ids that really received a message
         self.calls = []                # every (endpoint, params), in order
         self.documents = []            # files sent with sendDocument
+        self.files = {}                # file_id -> bytes, for files users send to the bot
 
     async def initialize(self):
         pass
@@ -45,11 +46,17 @@ class FakeRequest(BaseRequest):
         return 5
 
     async def do_request(self, url, method, request_data=None, **kwargs):
+        if "/file/bot" in url:                       # downloading an uploaded file
+            return 200, self.files[url.rsplit("/", 1)[1]]
         endpoint = url.rsplit("/", 1)[1]
         params = request_data.parameters if request_data else {}
         self.calls.append((endpoint, params))
         if endpoint == "getMe":
             result = {"id": 1, "is_bot": True, "first_name": "Bot", "username": "bot"}
+        elif endpoint == "getFile":
+            file_id = params["file_id"]
+            result = {"file_id": file_id, "file_unique_id": file_id, "file_size": len(self.files[file_id]),
+                      "file_path": file_id}
         elif endpoint == "getChatMember":
             self.member_checks += 1
             if self.member_error:
@@ -114,6 +121,18 @@ class Harness:
         message = {"message_id": 1000 + n, "date": 0, "chat": CHAT, "from": USER, "text": text}
         if text.startswith("/"):
             message["entities"] = [{"type": "bot_command", "offset": 0, "length": len(text.split()[0])}]
+        return await self._process({"update_id": n, "message": message})
+
+    async def document(self, content: bytes, filename: str, caption: str = ""):
+        """The user sends a file (with an optional caption)."""
+        n = self._next()
+        file_id = f"file{n}"
+        self.request.files[file_id] = content
+        message = {"message_id": 1000 + n, "date": 0, "chat": CHAT, "from": USER, "caption": caption,
+                   "document": {"file_id": file_id, "file_unique_id": file_id, "file_name": filename,
+                                "file_size": len(content)}}
+        if caption.startswith("/"):
+            message["caption_entities"] = [{"type": "bot_command", "offset": 0, "length": len(caption.split()[0])}]
         return await self._process({"update_id": n, "message": message})
 
     async def tap(self, data):

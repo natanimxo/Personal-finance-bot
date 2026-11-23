@@ -6,6 +6,27 @@ Railway or a plain VPS.
 import os
 
 
+def load_dotenv(path: str = ".env"):
+    """Local development: read KEY=value lines from .env. Real environment
+    variables win, so this never changes anything on Railway."""
+    if not os.path.isfile(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key, value = key.strip(), value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            if key and value and key not in os.environ:
+                os.environ[key] = value
+
+
+load_dotenv()
+
+
 def _env(*names, default=""):
     """First non-empty value among `names` (new name first, legacy names after)."""
     for name in names:
