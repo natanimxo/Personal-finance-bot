@@ -61,7 +61,7 @@ python bot.py
 
 ## 5. Deploy on Railway
 1. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo** → pick this repo
-   (the default branch is `muraja`).
+   (the default branch is `main`).
 2. Railway detects the `Procfile` and runs `python bot.py` as a worker.
 3. In your service's **Variables** tab add `BOT_TOKEN`, `REQUIRED_CHANNEL` and `CHANNEL_INVITE_LINK`.
 4. **Important — persistent storage:** Railway's filesystem resets on every
