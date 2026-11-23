@@ -30,7 +30,8 @@ def edit_menu(entry_id: int, is_transfer: bool = False):
         [InlineKeyboardButton("💵 Amount", callback_data=f"edf:amount:{entry_id}"), second],
         [InlineKeyboardButton("⬅️ From" if is_transfer else "🏦 Account", callback_data=f"edacc:{entry_id}"),
          InlineKeyboardButton("📅 Date", callback_data=f"eddate:{entry_id}")],
-        [InlineKeyboardButton("📝 Note", callback_data=f"edf:note:{entry_id}")],
+        [InlineKeyboardButton("📝 Note", callback_data=f"edf:note:{entry_id}")]
+        + ([] if is_transfer else [InlineKeyboardButton("🔁 Repeat", callback_data=f"rep:{entry_id}")]),
         [InlineKeyboardButton("✅ Done", callback_data=f"eddone:{entry_id}")],
     ])
 

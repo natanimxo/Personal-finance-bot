@@ -23,6 +23,7 @@ RECAP_TIME = time(hour=8, minute=0)
 # python-telegram-bot 20+ numbers days 0=Sunday ... 6=Saturday, so Monday is 1.
 RECAP_DAYS = (1,)
 BACKUP_TIME = time(hour=3, minute=0)
+RECURRING_TIME = time(hour=6, minute=0)
 
 
 def build_application(request=None, flow_timeout: int = FLOW_TIMEOUT) -> Application:
@@ -41,6 +42,8 @@ def build_application(request=None, flow_timeout: int = FLOW_TIMEOUT) -> Applica
     register_handlers(app, flow_timeout)
     app.job_queue.run_daily(send_weekly_recap, time=RECAP_TIME.replace(tzinfo=tz), days=RECAP_DAYS, name="weekly_recap")
     app.job_queue.run_daily(daily_backup_job, time=BACKUP_TIME.replace(tzinfo=tz), name="daily_backup")
+    from app.bot.recurring_ui import recurring_job
+    app.job_queue.run_daily(recurring_job, time=RECURRING_TIME.replace(tzinfo=tz), name="recurring")
     return app
 
 

@@ -23,6 +23,7 @@ async def settings_screen(user_id: int):
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("💱 Change currency", callback_data="set:currency")],
         [InlineKeyboardButton(f"🔔 Turn weekly recap {'off' if p['recap_enabled'] else 'on'}", callback_data="set:recap")],
+        [InlineKeyboardButton("🔁 Recurring entries", callback_data="set:recurring")],
     ])
     return text, kb
 

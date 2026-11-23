@@ -374,6 +374,7 @@
       note: start.note || "",
       date: start.date || todayIso(),
       to: start.to_account || null,
+      repeat: "",
     };
     const lockedType = editing && (entry.type === "transfer" ? "transfer" : "money");  // can't switch in or out of transfer
     setBackButton(() => go(editing ? "transactions" : "home"));
@@ -395,7 +396,7 @@
       !lockedType || (lockedType === "transfer" ? v === "transfer" : v !== "transfer"));
     const drawType = () => typeSeg.replaceChildren(...typeOptions.map(([v, label]) => h("button", {
       "aria-pressed": String(form.type === v),
-      onclick: () => { if (form.type !== v) { form.type = v; form.category = null; drawType(); drawCats(); drawAccounts(); } },
+      onclick: () => { if (form.type !== v) { form.type = v; form.category = null; drawType(); drawCats(); drawAccounts(); drawRepeat(); } },
     }, label)));
 
     const accBox = h("div", { class: "chips", role: "group", "aria-label": "Account" });
@@ -423,9 +424,17 @@
     const dateInput = h("input", { class: "input", type: "date", value: form.date, max: todayIso(), "aria-label": "Date",
       onchange: (e) => (form.date = e.target.value || todayIso()) });
 
+    const repeatBox = h("div", { class: "seg", role: "group", "aria-label": "Repeat" });
+    const drawRepeat = () => {
+      repeatField.hidden = editing || form.type === "transfer";
+      repeatBox.replaceChildren(...[["", "Once"], ["weekly", "Weekly"], ["monthly", "Monthly"]].map(([v, label]) => h("button", {
+        "aria-pressed": String(form.repeat === v), onclick: () => { form.repeat = v; drawRepeat(); },
+      }, label)));
+    };
+    const repeatField = h("div", { class: "field" }, h("label", {}, "Repeat"), repeatBox);
     const catField = h("div", { class: "field" }, h("label", {}, "Category"), catBox);
     const toField = h("div", { class: "field" }, h("label", {}, "To"), toBox);
-    drawType(); drawCats(); drawAccounts();
+    drawType(); drawCats(); drawAccounts(); drawRepeat();
 
     async function save() {
       const transfer = form.type === "transfer";
@@ -435,7 +444,7 @@
       const body = transfer
         ? { amount: amount.value.trim(), account: form.account, to_account: form.to, note: note.value, date: form.date }
         : { amount: amount.value.trim(), type: form.type, category: form.category, account: form.account,
-            note: note.value, date: form.date };
+            note: note.value, date: form.date, ...(!editing && form.repeat ? { repeat: form.repeat } : {}) };
       setMainBusy(true);
       try {
         const res = editing
@@ -446,7 +455,7 @@
             : await api("/api/transactions", { method: "POST", body });
         haptic(res.warning ? "warning" : "success");
         if (res.warning) toast(warningText(res.warning), "warn");
-        else toast(editing ? "Saved" : "Added");
+        else toast(editing ? "Saved" : res.recurring ? `Added, repeats ${res.recurring.frequency === "weekly" ? "every week" : "every month"}` : "Added");
         go(editing ? "transactions" : "home");
       } catch (err) {
         haptic("error");
@@ -475,6 +484,7 @@
       h("div", { class: "field" }, accLabel, accBox),
       toField,
       h("div", { class: "field" }, h("label", {}, "Date"), dateInput),
+      repeatField,
       h("div", { class: "field" }, h("label", {}, "Note"), note, counter),
       editing ? h("p", { class: "hint" }, `Logged ${new Date(entry.created_at).toLocaleString()}`) : null,
       editing ? h("button", { class: "btn danger", onclick: remove }, "Delete entry") : null);
@@ -590,6 +600,20 @@
 
   async function viewSettings() {
     const s = state.me.settings;
+    const recurringList = h("div", { class: "list" });
+    const loadRecurring = async () => {
+      const { recurring } = await api("/api/recurring");
+      recurringList.replaceChildren(...(recurring.length ? recurring.map((r) => h("div", { class: "row" },
+        h("span", { class: "main" },
+          h("div", { class: "title" }, `${r.category_label} · ${money(r.type === "income" ? r.amount_minor : -r.amount_minor, { sign: true })}`),
+          h("div", { class: "sub" }, [r.frequency === "weekly" ? "Every week" : "Every month", `next ${localDay(r.next_date)}`, r.note].filter(Boolean).join(" · "))),
+        h("button", { class: "btn secondary", "aria-label": "Stop repeating", onclick: async () => {
+          if (!(await confirmDialog("Stop repeating this? Entries already logged stay."))) return;
+          try { await api(`/api/recurring/${r.id}`, { method: "DELETE" }); toast("Stopped"); loadRecurring(); }
+          catch (err) { toast(err.message); }
+        } }, "Stop"))) : [h("div", { class: "empty" }, "Nothing repeats yet. Pick Weekly or Monthly when you add an entry.")]));
+    };
+    loadRecurring().catch((err) => recurringList.replaceChildren(h("div", { class: "empty" }, err.message)));
     const options = CURRENCIES.includes(s.currency) ? CURRENCIES : [s.currency, ...CURRENCIES];
     const currency = h("select", { class: "input", "aria-label": "Currency", onchange: (e) => update({ currency: e.target.value }) },
       options.map((c) => h("option", { value: c, selected: c === s.currency }, c)));
@@ -611,6 +635,8 @@
         h("label", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Weekly recap"),
           h("div", { class: "sub" }, "A summary from the bot every Monday morning")),
           h("span", { class: "switch" }, recap, h("span", {})))),
+      h("h2", {}, "Recurring"),
+      recurringList,
       h("h2", {}, "Data"),
       h("div", { class: "list" }, h("div", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Export CSV"),
         h("div", { class: "sub" }, "Coming soon")), h("button", { class: "btn secondary", disabled: true }, "Export"))),

@@ -11,7 +11,7 @@ from app import config
 from app.bot.handlers import budget_warning_text
 from app.bot.membership import is_subscribed, touch_user
 from app.db import db_call
-from app.services import accounts, budgets, catalog, periods, prefs, quick_entry, summaries, transactions
+from app.services import accounts, budgets, catalog, periods, prefs, quick_entry, recurring, summaries, transactions
 from app.services.validation import ValidationError, check_category, parse_amount_minor
 from app.web.auth import InitDataError, validate_init_data
 
@@ -109,6 +109,7 @@ class NewEntry(BaseModel):
     account: Optional[str] = None
     note: Optional[str] = ""
     date: Optional[str] = None  # local YYYY-MM-DD it happened; default today
+    repeat: Optional[str] = None  # "weekly" / "monthly": also create a recurring entry from it
 
 
 class EntryChanges(BaseModel):
@@ -150,16 +151,21 @@ async def list_transactions(cursor: Optional[str] = None, type: Optional[str] = 
 @router.post("/transactions", status_code=201)
 async def create_transaction(body: NewEntry, request: Request, user: CurrentUser = Depends(current_user)):
     try:
+        if body.repeat and body.repeat not in recurring.FREQUENCIES:
+            raise ValidationError("Repeat weekly or monthly.", "repeat")
         amount_minor = parse_amount_minor(body.amount)
         account = body.account or await db_call(accounts.fallback_account, user.id)
         entry, warning = await db_call(
             transactions.add_entry, user.id, amount_minor, body.type, body.category, account, body.note or "",
             body.date or None,
         )
+        rule = None
+        if body.repeat:
+            rule = await db_call(recurring.create_from_entry, user.id, entry["id"], body.repeat)
     except ValidationError as e:
         return validation_response(e)
     await notify_warning(request, user.id, warning)
-    return {"entry": entry_json(entry), "warning": warning}
+    return {"entry": entry_json(entry), "warning": warning, "recurring": rule}
 
 
 @router.post("/transfers", status_code=201)
@@ -233,6 +239,18 @@ async def quick(body: QuickText, request: Request, user: CurrentUser = Depends(c
         return validation_response(e)
     await notify_warning(request, user.id, warning)
     return {"entry": entry_json(entry), "draft": None, "warning": warning}
+
+
+@router.get("/recurring")
+async def list_recurring(user: CurrentUser = Depends(current_user)):
+    return {"recurring": await db_call(recurring.list_rules, user.id)}
+
+
+@router.delete("/recurring/{rule_id}")
+async def delete_recurring(rule_id: int, user: CurrentUser = Depends(current_user)):
+    if not await db_call(recurring.delete_rule, user.id, rule_id):
+        raise HTTPException(404, detail={"error": "No such recurring entry."})
+    return {"deleted": rule_id}
 
 
 # --- budgets / accounts / settings -----------------------------------------------------

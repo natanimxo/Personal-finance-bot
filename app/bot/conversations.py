@@ -12,7 +12,7 @@ from telegram.ext import (
 from telegram.warnings import PTBUserWarning
 
 from app.bot import handlers as h
-from app.bot import accounts_ui, edit, quick, settings_ui
+from app.bot import accounts_ui, edit, quick, recurring_ui, settings_ui
 from app.bot.keyboards import (
     BTN_ACCOUNTS, BTN_ADD, BTN_ADD_INCOME, BTN_BUDGETS, BTN_CANCEL, BTN_HELP, BTN_HISTORY, BTN_SETTINGS, BTN_SUMMARY,
     CB_FLOW_CANCEL, FLOW_TEXT, MENU_BUTTONS,
@@ -113,6 +113,10 @@ def register_handlers(app, flow_timeout: int = FLOW_TIMEOUT):
     app.add_handler(CallbackQueryHandler(settings_ui.currency_chosen, pattern=r"^cur:[A-Z]{3}$"))
     app.add_handler(CallbackQueryHandler(settings_ui.toggle_recap, pattern=r"^set:recap$"))
     app.add_handler(CallbackQueryHandler(settings_ui.back, pattern=r"^set:back$"))
+    app.add_handler(CallbackQueryHandler(recurring_ui.recurring_view, pattern=r"^set:recurring$"))
+    app.add_handler(CallbackQueryHandler(recurring_ui.recurring_delete, pattern=r"^repdel:\d+$"))
+    app.add_handler(CallbackQueryHandler(recurring_ui.repeat_menu, pattern=r"^rep:\d+$"))
+    app.add_handler(CallbackQueryHandler(recurring_ui.repeat_set, pattern=r"^repset:\d+:(weekly|monthly)$"))
 
     app.add_handler(CallbackQueryHandler(recheck_sub_callback, pattern="^recheck_sub$"))
     app.add_handler(CallbackQueryHandler(h.delete_callback, pattern="^del_"))
