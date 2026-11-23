@@ -3,9 +3,11 @@ bot and the Mini App can never disagree. Amounts are integer cents (amount_minor
 from datetime import date, datetime, timedelta, timezone
 
 from app.db import get_conn
-from app.services import budgets, periods, validation
+from app.services import accounts, budgets, periods, validation
 
-COLUMNS = "id, user_id, amount_minor, category, note, created_at, occurred_at, type, account"
+COLUMNS = ("id, user_id, amount_minor, category, note, created_at, occurred_at, type, account, "
+           "(SELECT a.name FROM accounts a WHERE a.user_id = expenses.user_id AND a.key = expenses.account) "
+           "AS account_name")
 PAGE_SIZE = 30
 
 
@@ -44,7 +46,7 @@ def add_entry(user_id: int, amount_minor: int, type_: str, category: str, accoun
     day = validation.check_date(day)
     validation.check_type(type_)
     validation.check_category(category, type_)
-    validation.check_account(account)
+    accounts.check_active(user_id, account)
     note = validation.check_note(note)
     if not isinstance(amount_minor, int) or amount_minor <= 0 or amount_minor > validation.MAX_AMOUNT * 100:
         raise validation.ValidationError("Invalid amount.", "amount")
@@ -76,7 +78,8 @@ def update_entry(user_id: int, entry_id: int, **changes):
     merged.update({k: v for k, v in changes.items() if v is not None})
     validation.check_type(merged["type"])
     validation.check_category(merged["category"], merged["type"])
-    validation.check_account(merged["account"])
+    if merged["account"] != current["account"]:  # an archived account may stay on its old entries
+        accounts.check_active(user_id, merged["account"])
     merged["note"] = validation.check_note(merged["note"])
     amount_minor = merged["amount_minor"]
     if not isinstance(amount_minor, int) or amount_minor <= 0 or amount_minor > validation.MAX_AMOUNT * 100:

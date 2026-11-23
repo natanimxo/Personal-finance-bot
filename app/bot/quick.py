@@ -16,7 +16,7 @@ def undo_keyboard(entry_id: int):
 
 async def _save(update: Update, context: ContextTypes.DEFAULT_TYPE, parsed: dict, edit_query=None):
     user_id = update.effective_user.id
-    account = parsed["account"] or await db_call(accounts.get_default_account, user_id) or "cash"
+    account = parsed["account"] or await db_call(accounts.fallback_account, user_id)
     entry, warning = await db_call(
         transactions.add_entry, user_id, parsed["amount_minor"], parsed["type"], parsed["category"], account,
         parsed["note"], parsed.get("day"),
@@ -33,7 +33,8 @@ async def _save(update: Update, context: ContextTypes.DEFAULT_TYPE, parsed: dict
 @require_subscription
 async def quick_entry_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        parsed = quick_entry.parse(update.message.text)
+        own_accounts = await db_call(quick_entry.user_accounts, update.effective_user.id)
+        parsed = quick_entry.parse(update.message.text, accounts=own_accounts)
     except ValidationError as e:
         await update.message.reply_text(f"{esc(e)} For example: <code>500 food lunch</code>")
         return

@@ -65,13 +65,24 @@ def _norm(word: str) -> str:
 
 
 def _names_index(options):
-    """{"food": "food", "lunch": "food", ...} from {key: [names...]} (first key wins)."""
+    """{"food": "food", "lunch": "food", ...} from {key: [names...]} (first key wins).
+    Names may carry emoji ("📱 M-Pesa"); multi-word names also match by each word."""
     index = {}
     for key, names in options.items():
         for name in [key, *names]:
-            for variant in {_norm(name), _norm(name).replace("_", " "), _norm(name).replace("-", "")}:
-                index.setdefault(variant, key)
+            plain = re.sub(r"[^\w\s-]", "", name.lower()).strip()
+            words = plain.replace("_", " ").split()
+            for variant in {plain, plain.replace("-", ""), *words, *(w.replace("-", "") for w in words)}:
+                if variant:
+                    index.setdefault(variant, key)
     return index
+
+
+def user_accounts(user_id: int) -> dict:
+    """{key: [the user's name for it, plus built-in aliases]} for this user's active accounts."""
+    from app.services import accounts
+
+    return {key: [name, *ACCOUNT_ALIASES.get(key, [])] for key, name in accounts.choices(user_id)}
 
 
 def parse(text: str, categories: dict = None, accounts: dict = None) -> Optional[Parsed]:

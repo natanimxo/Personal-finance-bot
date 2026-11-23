@@ -49,7 +49,7 @@ def entry_json(entry: dict) -> dict:
         "category": entry["category"],
         "category_label": catalog.label_for(entry["category"], entry["type"]),
         "account": entry["account"],
-        "account_label": catalog.account_label(entry["account"]),
+        "account_label": entry.get("account_name") or catalog.account_label(entry["account"]),
         "note": entry["note"] or "",
         "created_at": entry["created_at"] + "Z",  # stored as naive UTC
         "occurred_at": entry["occurred_at"] + "Z",
@@ -139,7 +139,7 @@ async def list_transactions(cursor: Optional[str] = None, type: Optional[str] = 
 async def create_transaction(body: NewEntry, request: Request, user: CurrentUser = Depends(current_user)):
     try:
         amount_minor = parse_amount_minor(body.amount)
-        account = body.account or await db_call(accounts.get_default_account, user.id) or "cash"
+        account = body.account or await db_call(accounts.fallback_account, user.id)
         entry, warning = await db_call(
             transactions.add_entry, user.id, amount_minor, body.type, body.category, account, body.note or "",
             body.date or None,
@@ -193,7 +193,7 @@ async def quick(body: QuickText, request: Request, user: CurrentUser = Depends(c
     """Quick entry, same rules as the bot. Without a category word, returns what was
     understood so the app can open the Add screen with it filled in."""
     try:
-        parsed = quick_entry.parse(body.text)
+        parsed = quick_entry.parse(body.text, accounts=await db_call(quick_entry.user_accounts, user.id))
     except ValidationError as e:
         return validation_response(e)
     if parsed is None:
@@ -202,7 +202,7 @@ async def quick(body: QuickText, request: Request, user: CurrentUser = Depends(c
              "account": parsed.account, "note": parsed.note, "date": parsed.day.isoformat() if parsed.day else None}
     if not parsed.category:
         return {"entry": None, "draft": draft, "warning": None}
-    account = parsed.account or await db_call(accounts.get_default_account, user.id) or "cash"
+    account = parsed.account or await db_call(accounts.fallback_account, user.id)
     try:
         entry, warning = await db_call(transactions.add_entry, user.id, parsed.amount_minor, parsed.type,
                                        parsed.category, account, parsed.note, parsed.day)
@@ -238,18 +238,55 @@ class AccountChange(BaseModel):
     default_account: str
 
 
+class NewAccount(BaseModel):
+    name: str
+
+
+class AccountEdit(BaseModel):
+    name: Optional[str] = None
+    archived: Optional[bool] = None
+
+
+async def _accounts_response(user_id: int):
+    return {"accounts": await db_call(accounts.overview, user_id),
+            "default_account": await db_call(accounts.get_default_account, user_id)}
+
+
 @router.get("/accounts")
 async def get_accounts(user: CurrentUser = Depends(current_user)):
-    return {"accounts": await db_call(accounts.overview, user.id)}
+    return await _accounts_response(user.id)
 
 
 @router.put("/accounts")
 async def put_accounts(body: AccountChange, user: CurrentUser = Depends(current_user)):
+    """Set the default account."""
     try:
         await db_call(accounts.set_default_account, user.id, body.default_account)
     except ValidationError as e:
         return validation_response(e)
-    return {"accounts": await db_call(accounts.overview, user.id)}
+    return await _accounts_response(user.id)
+
+
+@router.post("/accounts", status_code=201)
+async def add_account(body: NewAccount, user: CurrentUser = Depends(current_user)):
+    try:
+        await db_call(accounts.add_account, user.id, body.name)
+    except ValidationError as e:
+        return validation_response(e)
+    return await _accounts_response(user.id)
+
+
+@router.patch("/accounts/{key}")
+async def edit_account(key: str, body: AccountEdit, user: CurrentUser = Depends(current_user)):
+    """Rename, archive (archived: true) or restore (archived: false) an account."""
+    try:
+        if body.name is not None:
+            await db_call(accounts.rename_account, user.id, key, body.name)
+        if body.archived is not None:
+            await db_call(accounts.set_archived, user.id, key, body.archived)
+    except ValidationError as e:
+        return validation_response(e)
+    return await _accounts_response(user.id)
 
 
 class SettingsChange(BaseModel):

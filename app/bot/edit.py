@@ -12,11 +12,11 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from app.bot.handlers import budget_warning_text, entry_line
 from app.bot.keyboards import (
-    ACCOUNTS, BTN_CANCEL, CATEGORIES, INCOME_CATEGORIES, MAX_NOTE_LENGTH, cancel_keyboard, esc,
+    BTN_CANCEL, CATEGORIES, INCOME_CATEGORIES, MAX_NOTE_LENGTH, cancel_keyboard, esc,
     main_menu_keyboard, parse_amount,
 )
 from app.db import db_call
-from app.services import periods, transactions
+from app.services import accounts, periods, transactions
 from app.services.validation import ValidationError, check_date, to_minor
 
 EDIT_TEXT = 30
@@ -88,8 +88,9 @@ async def edit_account_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not entry:
         return
     await query.answer()
+    options = await db_call(accounts.choices, update.effective_user.id)
     kb = choice_keyboard([InlineKeyboardButton(("• " if k == entry["account"] else "") + label,
-                                               callback_data=f"edsetacc:{entry_id}:{k}") for k, label in ACCOUNTS], entry_id)
+                                               callback_data=f"edsetacc:{entry_id}:{k}") for k, label in options], entry_id)
     await query.edit_message_reply_markup(reply_markup=kb)
 
 

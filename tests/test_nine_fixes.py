@@ -101,7 +101,7 @@ def test_2_with_default_the_account_step_is_skipped_and_can_be_changed(db):
             assert "note" in out.texts[-1]
             out = await h.tap("skip_note")
             confirmation = out.texts[-2]
-            assert "Mobile Wallets" in confirmation
+            assert "M-Pesa" in confirmation   # a new user's mobile-money account
             change = [b for b in out.buttons(-2) if b["text"] == "🔁 Change account"]
             assert change and out.has_main_keyboard(-1)
 

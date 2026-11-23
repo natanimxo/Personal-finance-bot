@@ -30,7 +30,7 @@ ASK_INCOME_AMOUNT, ASK_INCOME_CATEGORY, ASK_INCOME_ACCOUNT, ASK_INCOME_NOTE = ra
 BUDGET_CATEGORY, BUDGET_AMOUNT = range(20, 22)
 
 PENDING_KEYS = ("pending_amount", "pending_category", "pending_account", "used_default", "pending_budget_category",
-                "editing", "pending_day", "day_choice", "flow_type")
+                "editing", "pending_day", "day_choice", "flow_type", "account_naming")
 
 
 def clear_pending(context: ContextTypes.DEFAULT_TYPE):
@@ -52,7 +52,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{BTN_HISTORY} — see your recent transactions\n"
         f"{BTN_SUMMARY} — income, expenses, net and savings rate\n"
         f"{BTN_BUDGETS} — set spending limits &amp; get warned\n"
-        f"{BTN_ACCOUNTS} — balances across Cash/Bank/Card/Mobile Wallets\n\n"
+        f"{BTN_ACCOUNTS} — balances per account; add, rename or archive accounts\n\n"
         "I'll also message you every Monday morning with last week's recap.",
         reply_markup=main_menu_keyboard(),
     )
@@ -182,7 +182,7 @@ async def _flow_category(update: Update, context: ContextTypes.DEFAULT_TYPE, typ
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text="Which account?",
-        reply_markup=account_keyboard(cfg["acc_prefix"]),
+        reply_markup=account_keyboard(cfg["acc_prefix"], await db_call(accounts.choices, update.effective_user.id)),
     )
     return cfg["states"][2]
 
@@ -192,8 +192,14 @@ async def _flow_account(update: Update, context: ContextTypes.DEFAULT_TYPE, type
     await query.answer()
     account_key = query.data.split("_", 1)[1]
     context.user_data["pending_account"] = account_key
-    await query.edit_message_text(f"Account: {esc(account_label(account_key))}")
+    names = await db_call(accounts.names, update.effective_user.id)
+    await query.edit_message_text(f"Account: {esc(names.get(account_key, account_key))}")
     return await _ask_note(update, context, type_)
+
+
+def account_name(entry) -> str:
+    """The entry's account as the user named it (falls back to the original labels)."""
+    return entry.get("account_name") or account_label(entry["account"])
 
 
 def entry_line(entry) -> str:
@@ -202,7 +208,7 @@ def entry_line(entry) -> str:
     icon = "💵" if type_ == "income" else "✅"
     text = (
         f"{icon} Logged {sign}{entry['amount']:.2f} — {esc(label_for(entry['category'], type_))} "
-        f"({esc(account_label(entry['account']))})"
+        f"({esc(account_name(entry))})"
     )
     day = periods.local_date_of(entry["occurred_at"])
     if day != periods.today():
@@ -306,8 +312,9 @@ async def change_account_start(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer("That entry was deleted.", show_alert=True)
         return
     await query.answer()
+    options = await db_call(accounts.choices, update.effective_user.id)
     await query.edit_message_reply_markup(
-        reply_markup=account_keyboard(f"setacc:{entry_id}", default=entry["account"], with_cancel=False, sep=":")
+        reply_markup=account_keyboard(f"setacc:{entry_id}", options, default=entry["account"], with_cancel=False, sep=":")
     )
 
 
@@ -316,11 +323,16 @@ async def change_account_chosen(update: Update, context: ContextTypes.DEFAULT_TY
     _, entry_id, account_key = query.data.split(":", 2)
     entry_id = int(entry_id)
     user_id = update.effective_user.id
-    if account_key not in dict(ACCOUNTS) or not await db_call(transactions.set_account, user_id, entry_id, account_key):
+    try:
+        moved = await db_call(transactions.set_account, user_id, entry_id, account_key)
+    except ValidationError as e:
+        await query.answer(str(e), show_alert=True)
+        return
+    if not moved:
         await query.answer("That entry was deleted.", show_alert=True)
         return
-    await query.answer(f"Moved to {account_label(account_key)}")
     entry = await db_call(transactions.get_entry, user_id, entry_id)
+    await query.answer(f"Moved to {account_name(entry)}")
     await query.edit_message_text(entry_line(entry), reply_markup=change_account_keyboard(entry_id))
 
 
@@ -392,7 +404,7 @@ async def history_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
         note = f" — {esc(r['note'])}" if r["note"] else ""
         text = (
             f"{date}  {sign}{r['amount']:.2f}  {esc(label_for(r['category'], type_))} · "
-            f"{esc(account_label(r['account']))}{note}"
+            f"{esc(account_name(r))}{note}"
         )
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("✏️ Edit", callback_data=f"edit:{r['id']}"),
                                     InlineKeyboardButton("🗑️ Delete", callback_data=f"del_{r['id']}")]])
@@ -458,21 +470,33 @@ async def summary_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 @require_subscription
 async def accounts_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    balances = await db_call(accounts.account_balances, user_id)
-    default_acc = await db_call(accounts.get_default_account, user_id)
+    text, kb = await accounts_screen(update.effective_user.id)
+    await update.effective_message.reply_text(text, reply_markup=kb)
+
+
+async def accounts_screen(user_id: int):
+    rows = await db_call(accounts.overview, user_id)
+    active = [r for r in rows if not r["archived"]]
+    archived = [r for r in rows if r["archived"]]
     lines = ["🏦 <b>Account balances:</b>"]
-    for key, label in ACCOUNTS:
-        star = " ⭐" if key == default_acc else ""
-        lines.append(f"• {esc(label)}: {balances.get(key, 0):+.2f}{star}")
-    if default_acc:
+    for r in active:
+        lines.append(f"• {esc(r['label'])}: {r['balance_minor'] / 100:+.2f}{' ⭐' if r['is_default'] else ''}")
+    if archived:
+        lines.append("\n<b>Archived:</b>")
+        lines += [f"• {esc(r['label'])}: {r['balance_minor'] / 100:+.2f}" for r in archived]
+    if any(r["is_default"] for r in active):
         lines.append("\n⭐ = your default account. New entries go there without asking.")
     else:
         lines.append("\nSet a default account and new entries skip the account step.")
-    kb = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("⭐ Set default account", callback_data="set_default_account_start")]]
-    )
-    await update.effective_message.reply_text("\n".join(lines), reply_markup=kb)
+    buttons = [
+        [InlineKeyboardButton("⭐ Set default", callback_data="set_default_account_start")],
+        [InlineKeyboardButton("➕ Add", callback_data="acc:add"),
+         InlineKeyboardButton("✏️ Rename", callback_data="acc:ren"),
+         InlineKeyboardButton("🗄️ Archive", callback_data="acc:arch")],
+    ]
+    if archived:
+        buttons.append([InlineKeyboardButton("♻️ Restore an archived account", callback_data="acc:restore")])
+    return "\n".join(lines), InlineKeyboardMarkup(buttons)
 
 
 async def set_default_account_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -483,7 +507,8 @@ async def set_default_account_start(update: Update, context: ContextTypes.DEFAUL
         chat_id=update.effective_chat.id,
         text="Choose one:",
         reply_markup=account_keyboard(
-            "setdefacc", default=await db_call(accounts.get_default_account, update.effective_user.id), with_cancel=False
+            "setdefacc", await db_call(accounts.choices, update.effective_user.id),
+            default=await db_call(accounts.get_default_account, update.effective_user.id), with_cancel=False
         ),
     )
 
@@ -492,8 +517,13 @@ async def set_default_account_callback(update: Update, context: ContextTypes.DEF
     query = update.callback_query
     await query.answer()
     account_key = query.data.split("_", 1)[1]
-    await db_call(accounts.set_default_account, update.effective_user.id, account_key)
-    await query.edit_message_text(f"⭐ Default account set to {esc(account_label(account_key))}")
+    try:
+        await db_call(accounts.set_default_account, update.effective_user.id, account_key)
+    except ValidationError as e:
+        await query.edit_message_text(esc(e))
+        return
+    names = await db_call(accounts.names, update.effective_user.id)
+    await query.edit_message_text(f"⭐ Default account set to {esc(names.get(account_key, account_key))}")
 
 
 # ---------------------------------------------------------------------------

@@ -237,7 +237,7 @@
       : h("button", { class: "card row", onclick: () => go("budgets") },
           h("span", { class: "main" }, "Set a monthly budget"), h("span", { class: "hint" }, "›"));
 
-    const accounts = h("div", { class: "list" }, data.accounts.map((a) => h("div", { class: "row" },
+    const accounts = h("div", { class: "list" }, data.accounts.filter((a) => !a.archived || a.balance_minor).map((a) => h("div", { class: "row" },
       h("span", { class: "main title" }, a.label, a.is_default ? " ⭐" : ""),
       h("span", { class: "amount " + (a.balance_minor < 0 ? "neg" : "") }, money(a.balance_minor)))));
 
@@ -335,7 +335,8 @@
       onchange: (e) => { filters[name] = e.target.value; go("transactions"); } });
 
     const filterBox = h("div", { class: "filters" },
-      search, select("category", "All categories", cats), select("account", "All accounts", me.accounts),
+      search, select("category", "All categories", cats),
+      select("account", "All accounts", me.accounts.map((a) => ({ key: a.account, label: a.label }))),
       date("from", "From date"), date("to", "To date"),
       anyFilter() ? h("button", { class: "btn secondary wide", onclick: () => { Object.keys(filters).forEach((k) => (filters[k] = "")); go("transactions"); } }, "Clear filters") : null);
 
@@ -387,7 +388,7 @@
     }, label)));
 
     const accBox = h("div", { class: "chips", role: "group", "aria-label": "Account" });
-    const drawAccounts = () => accBox.replaceChildren(...me.accounts.map((a) => h("button", {
+    const drawAccounts = () => accBox.replaceChildren(...me.accounts.filter((a) => !a.archived || a.account === form.account).map((a) => h("button", {
       class: "chip", "aria-pressed": String(form.account === a.account),
       onclick: () => { form.account = a.account; drawAccounts(); },
     }, a.label, a.is_default ? " ⭐" : "")));
@@ -494,28 +495,63 @@
 
   // ---------------------------------------------------------------- Accounts
   async function viewAccounts() {
-    const data = await api("/api/accounts");
-    const list = h("div", { class: "list" });
-    function draw() {
-      list.replaceChildren(...data.accounts.map((a) => h("div", { class: "row" },
+    let data = await api("/api/accounts");
+    const root = h("div");
+    let editing = null;  // key of the account being renamed
+
+    async function change(request, done) {
+      try {
+        data = await request();
+        state.me.accounts = data.accounts;
+        state.me.default_account = data.default_account;
+        editing = null;
+        haptic("success");
+        if (done) toast(done);
+        draw();
+      } catch (err) { haptic("error"); toast(err.message); }
+    }
+
+    function accountRow(a) {
+      if (editing === a.account) {
+        const input = h("input", { class: "input", value: a.label, maxlength: 30, "aria-label": "Account name" });
+        setTimeout(() => input.focus(), 30);
+        return h("div", { class: "row" }, h("div", { class: "inline-edit", style: "padding:0;flex:1" }, input,
+          h("button", { class: "btn", onclick: () => change(() => api(`/api/accounts/${a.account}`, { method: "PATCH", body: { name: input.value } }), "Renamed") }, "Save"),
+          h("button", { class: "btn secondary", onclick: () => { editing = null; draw(); } }, "✕")));
+      }
+      const actions = a.archived
+        ? [h("button", { class: "btn secondary", onclick: () => change(() => api(`/api/accounts/${a.account}`, { method: "PATCH", body: { archived: false } }), "Restored") }, "Restore")]
+        : [
+            a.is_default ? null : h("button", { class: "chip", title: "Make default", "aria-label": `Make ${a.label} the default`,
+              onclick: () => change(() => api("/api/accounts", { method: "PUT", body: { default_account: a.account } }), "Default set") }, "⭐"),
+            h("button", { class: "chip", "aria-label": `Rename ${a.label}`, onclick: () => { editing = a.account; draw(); } }, "✏️"),
+            h("button", { class: "chip", "aria-label": `Archive ${a.label}`, onclick: async () => {
+              if (await confirmDialog(`Archive ${a.label}? It disappears from pickers; its history and balance stay.`))
+                change(() => api(`/api/accounts/${a.account}`, { method: "PATCH", body: { archived: true } }), "Archived");
+            } }, "🗄️"),
+          ];
+      return h("div", { class: "row" },
         h("span", { class: "main" },
           h("div", { class: "title" }, a.label, a.is_default ? " ⭐" : ""),
-          h("div", { class: "sub" }, a.is_default ? "Default for new entries" : "")),
-        h("span", { class: "amount " + (a.balance_minor < 0 ? "neg" : "") }, money(a.balance_minor)),
-        a.is_default ? null : h("button", { class: "btn secondary", "aria-label": `Make ${a.label} the default`, onclick: async () => {
-          try {
-            const res = await api("/api/accounts", { method: "PUT", body: { default_account: a.account } });
-            data.accounts = res.accounts;
-            state.me.accounts = res.accounts;
-            state.me.default_account = a.account;
-            haptic("success");
-            draw();
-          } catch (err) { toast(err.message); }
-        } }, "Make default"))));
+          h("div", { class: "sub amount " + (a.balance_minor < 0 ? "neg" : "") }, money(a.balance_minor))),
+        ...actions);
+    }
+
+    function draw() {
+      const active = data.accounts.filter((a) => !a.archived);
+      const archived = data.accounts.filter((a) => a.archived);
+      const newName = h("input", { class: "input", placeholder: "New account, e.g. Savings", maxlength: 30, "aria-label": "New account name" });
+      root.replaceChildren(
+        h("h1", {}, "Accounts"),
+        h("p", { class: "hint" }, "Balance = income minus expenses. ⭐ is where new entries go."),
+        h("div", { class: "list" }, active.map(accountRow)),
+        h("form", { class: "quick", onsubmit: (e) => { e.preventDefault(); if (newName.value.trim()) change(() => api("/api/accounts", { method: "POST", body: { name: newName.value } }), "Account added"); } },
+          newName, h("button", { class: "btn", type: "submit" }, "Add")),
+        archived.length ? h("h2", {}, "Archived") : null,
+        archived.length ? h("div", { class: "list" }, archived.map(accountRow)) : null);
     }
     draw();
-    return h("div", {}, h("h1", {}, "Accounts"),
-      h("p", { class: "hint" }, "Balance = income minus expenses logged to each account."), list);
+    return root;
   }
 
   // ---------------------------------------------------------------- Settings

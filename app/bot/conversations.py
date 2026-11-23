@@ -12,7 +12,7 @@ from telegram.ext import (
 from telegram.warnings import PTBUserWarning
 
 from app.bot import handlers as h
-from app.bot import edit, quick
+from app.bot import accounts_ui, edit, quick
 from app.bot.keyboards import (
     BTN_ACCOUNTS, BTN_ADD, BTN_ADD_INCOME, BTN_BUDGETS, BTN_CANCEL, BTN_HELP, BTN_HISTORY, BTN_SUMMARY,
     CB_FLOW_CANCEL, FLOW_TEXT, MENU_BUTTONS,
@@ -39,6 +39,7 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 MessageHandler(filters.Text([BTN_ADD_INCOME]), h.add_income_start),
                 CallbackQueryHandler(h.budget_start, pattern="^set_budget_start$"),
                 CallbackQueryHandler(edit.edit_text_start, pattern=r"^edf:(amount|note|date):\d+$"),
+                CallbackQueryHandler(accounts_ui.name_start, pattern=r"^acc:(add|ren:\w+)$"),
             ],
             states={
                 h.ASK_AMOUNT: [MessageHandler(FLOW_TEXT, h.add_amount_received)],
@@ -61,6 +62,7 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 h.BUDGET_CATEGORY: [CallbackQueryHandler(h.budget_category_chosen, pattern="^budgetcat_")],
                 h.BUDGET_AMOUNT: [MessageHandler(FLOW_TEXT, h.budget_amount_received)],
                 edit.EDIT_TEXT: [MessageHandler(FLOW_TEXT, edit.edit_text_received)],
+                accounts_ui.ACCOUNT_NAME: [MessageHandler(FLOW_TEXT, accounts_ui.name_received)],
                 ConversationHandler.TIMEOUT: [
                     MessageHandler(filters.ALL, h.conversation_timeout),
                     CallbackQueryHandler(h.conversation_timeout),
@@ -117,6 +119,11 @@ def register_handlers(app, flow_timeout: int = FLOW_TIMEOUT):
     app.add_handler(CallbackQueryHandler(edit.edit_set_choice, pattern=r"^edset(cat|acc):\d+:\w+$"))
     app.add_handler(CallbackQueryHandler(edit.edit_date_menu, pattern=r"^eddate:\d+$"))
     app.add_handler(CallbackQueryHandler(edit.edit_set_date, pattern=r"^edsetdate:\d+:(today|yesterday)$"))
+
+    # Accounts screen: choose an account to rename / archive / restore, and archive it.
+    app.add_handler(CallbackQueryHandler(accounts_ui.choose_for, pattern=r"^acc:(ren|arch|restore)$"))
+    app.add_handler(CallbackQueryHandler(accounts_ui.archive, pattern=r"^acc:(archive|unarch):\w+$"))
+    app.add_handler(CallbackQueryHandler(accounts_ui.back, pattern=r"^acc:back$"))
 
     # Quick entry: a plain message that starts with an amount ("500 food lunch").
     # Registered after the flows, so a number typed as a flow's answer goes to the flow.

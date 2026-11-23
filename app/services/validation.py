@@ -69,12 +69,6 @@ def check_category(category: str, type_: str) -> str:
     return category
 
 
-def check_account(account: str) -> str:
-    if account not in catalog.ACCOUNT_LABELS:
-        raise ValidationError("Unknown account.", "account")
-    return account
-
-
 def check_note(note) -> str:
     note = (note or "").strip()
     if len(note) > MAX_NOTE_LENGTH:

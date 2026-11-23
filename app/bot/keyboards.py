@@ -66,11 +66,11 @@ def _grid(buttons, with_cancel: bool):
     return InlineKeyboardMarkup(rows)
 
 
-def account_keyboard(prefix: str, default: str = None, with_cancel: bool = True, sep: str = "_"):
-    """Account picker; the default account (if any) is marked with ⭐."""
+def account_keyboard(prefix: str, options, default: str = None, with_cancel: bool = True, sep: str = "_"):
+    """Picker over the user's accounts, `options` = [(key, name)]; the default is marked with ⭐."""
     buttons = [
         InlineKeyboardButton(f"⭐ {label}" if key == default else label, callback_data=f"{prefix}{sep}{key}")
-        for key, label in ACCOUNTS
+        for key, label in options
     ]
     return _grid(buttons, with_cancel)
 

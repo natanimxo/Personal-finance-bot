@@ -15,7 +15,7 @@ Everything works through buttons — there are no commands to type besides
 | 📋 History | Your last 10 transactions (income marked +, expenses −), each with ✏️ Edit (amount, category, account, note) and 🗑️ Delete |
 | 📊 Summary | Income, expenses, net and savings rate (net ÷ income, shown when there is income) for this week (from Monday) or this month (from the 1st), plus spending by category |
 | 💰 Budgets | Set a monthly limit per expense category. You're warned at 80% and when you go over |
-| 🏦 Accounts | Balance per account (Cash, Bank, Card, Mobile Wallets) and your ⭐ default account, which new entries use without asking |
+| 🏦 Accounts | Balance per account and your ⭐ default account (new entries use it without asking). ➕ Add, ✏️ Rename and 🗄️ Archive accounts, and ♻️ restore archived ones. A rename or archive keeps the account's history and balance |
 | ❓ Help | How the flow works |
 
 - **Quick entry:** just send `500 food lunch`, `+20000 salary` or
@@ -80,6 +80,7 @@ printed URL. It uses demo data and a fake Telegram.
 | `BOT_TOKEN` | yes | Token from BotFather |
 | `CHANNEL_ID` | yes | `@username` or numeric ID of the channel users must join (old name `REQUIRED_CHANNEL` still works) |
 | `CHANNEL_LINK` | yes | Link shown on the "join the channel" screen (old name `CHANNEL_INVITE_LINK` still works) |
+| `DEFAULT_ACCOUNTS` | no | Accounts a new user starts with (default `Cash,M-Pesa,Bank,Card`; existing users keep their own) |
 | `APP_TIMEZONE` | no | Timezone for weeks, months and the recap (default `Africa/Nairobi`) |
 | `ADMIN_CHAT_ID` | no | Telegram id allowed to use `/recap_now` |
 | `PUBLIC_URL` | for the Mini App | Base https URL. Default: `https://$RAILWAY_PUBLIC_DOMAIN` |

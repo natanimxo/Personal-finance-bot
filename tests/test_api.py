@@ -98,7 +98,9 @@ def test_me(server):
     body = server.get("/api/me", headers=auth()).json()
     assert body["user"]["id"] == UID
     assert body["settings"] == {"currency": "KES", "recap_enabled": True}
-    assert [a["account"] for a in body["accounts"]] == ["cash", "bank", "card", "mobile_money"]
+    # A new user starts with the plan's default accounts: Cash, M-Pesa, Bank, Card.
+    assert [(a["account"], a["label"]) for a in body["accounts"]] == [
+        ("cash", "💵 Cash"), ("mobile_money", "📱 M-Pesa"), ("bank", "🏦 Bank"), ("card", "💳 Card")]
     assert body["default_account"] is None
     assert {c["key"] for c in body["categories"]["income"]} >= {"salary", "gift"}
 
