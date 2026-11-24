@@ -85,7 +85,8 @@ How it works for users: one schedule for everyone, no free period. It started on
 24 Nov 2026 00:00 (Nairobi) with We Talk A Lot; every 30 days the required channel
 moves to the next one in the list (Crypto Alpha Edge US, Hustle To Millions, Crypto
 Wall Street, Earn Stack, Crypto Notebook) and round again. Users must stay in the
-current channel: leaving it shows "You left …" at their next action. Earlier
+current channel: leaving it shows "Looks like you left …" at their next action.
+Users only ever see the channel's name, never the schedule. Earlier
 channels are never checked. The admin account is never checked. `/gate_schedule`
 lists the next periods with dates. To change the list: forward a post from a
 channel to the bot and reply to it with `/gate_add`; `/gate_remove n` takes one out.

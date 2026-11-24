@@ -184,18 +184,15 @@
     tabs.hidden = true;
     setMainButton(null);
     if (err instanceof ApiError && err.status === 403 && err.body && err.body.detail && err.body.detail.error === "not_subscribed") {
+      // Every text comes from the server's strings file (app/strings.py).
       const d = err.body.detail;
       const link = d.join_link;
-      const name = d.channel || "the channel";
-      const days = d.days_left ? ` (${d.days_left} more day${d.days_left === 1 ? "" : "s"})` : "";
-      screen.replaceChildren(h("div", { class: "state" },
-        h("div", { class: "big" }, "🔒"),
-        h("h1", {}, d.left ? `You left ${name}` : `This period's channel: ${name}${d.days_left ? ` — ${d.days_left} days left` : ""}`),
-        h("p", {}, d.left
-          ? `Rejoin to keep using the tracker. It's your channel for this period${days}. Your entries are all still here.`
-          : "The tracker is free. Every 30 days there's one channel everyone needs to be in, and you only need the current one."),
-        link ? h("button", { class: "btn", onclick: () => (insideTelegram ? tg.openTelegramLink(link) : window.open(link)) }, `📢 Join ${name}`) : null,
-        h("p", {}, h("button", { class: "btn secondary", onclick: () => boot() }, "✅ I've joined"))));
+      screen.replaceChildren(h("div", { class: "state join" },
+        h("h1", {}, d.title),
+        h("p", {}, d.body),
+        link ? h("button", { class: "btn", onclick: () => (insideTelegram ? tg.openTelegramLink(link) : window.open(link)) }, d.join_button) : null,
+        h("p", {}, h("button", { class: "btn secondary", onclick: () => boot({ recheck: d.not_yet, welcome: d.welcome }) }, d.joined_button))));
+      if (state.recheckNote) { toast(state.recheckNote); state.recheckNote = null; }
       return;
     }
     if (err instanceof ApiError && err.status === 401) {
@@ -722,11 +719,16 @@
   }
 
   // ---------------------------------------------------------------- start
-  async function boot() {
+  // opts.recheck / opts.welcome: after "✅ I've joined", what to say if they still
+  // aren't in the channel, or once they are (texts from the join screen).
+  async function boot(opts = {}) {
     if (tg) { tg.ready(); tg.expand(); }
     screen.replaceChildren(h("div", { class: "spinner" }));
+    state.recheckNote = opts.recheck || null;
     try {
       state.me = await api("/api/me");
+      state.recheckNote = null;
+      if (opts.welcome) toast(opts.welcome);
       // First visit from the app: take the phone's own timezone (changeable in Settings).
       if (!state.me.settings.timezone && phoneZone()) {
         try { state.me.settings = (await api("/api/settings", { method: "PUT", body: { timezone: phoneZone() } })).settings; }

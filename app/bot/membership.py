@@ -265,7 +265,8 @@ async def join_screen(bot, user_id: int, pos):
     """(text, keyboard) for the join screen, and records that it was shown."""
     title = await channel_title(bot, pos.channel)
     left = await db_call(gate.has_left, user_id, pos)
-    text = t("gate.text_left" if left else "gate.text", name=esc(title), days=pos.days_left)
+    # Only the channel's name ever reaches users: nothing about how the gate works.
+    text = t("gate.text_left", name=esc(title)) if left else t("gate.text")
     buttons = []
     if pos.channel.invite_link:
         buttons.append([InlineKeyboardButton(t("gate.join", name=title), url=pos.channel.invite_link)])
@@ -277,14 +278,20 @@ async def join_screen(bot, user_id: int, pos):
 
 
 async def join_details(bot, user_id: int, pos) -> dict:
-    """What the Mini App needs for its own join screen (and records that it was shown)."""
+    """The Mini App's join screen, its texts straight from the strings file (and records
+    that it was shown). Nothing about how the gate works, only the channel's name."""
     await db_call(gate.record_shown, user_id, pos)
-    return {"channel": await channel_title(bot, pos.channel), "join_link": pos.channel.invite_link or "",
-            "left": await db_call(gate.has_left, user_id, pos), "days_left": pos.days_left}
+    title = await channel_title(bot, pos.channel)
+    left = await db_call(gate.has_left, user_id, pos)
+    return {"title": t("gate.app_title"),
+            "body": t("gate.text_left", name=title) if left else t("gate.app_body"),
+            "join_link": pos.channel.invite_link or "", "join_button": t("gate.join", name=title),
+            "joined_button": t("gate.subscribed"), "not_yet": t("gate.still_not"),
+            "welcome": t("gate.confirmed")}
 
 
 async def send_gate(update: Update, context=None):
-    """The join screen: this period's channel by name, the days left, 📢 Join and ✅ I've joined."""
+    """The join screen: a welcome (or "you left"), 📢 Join <channel> and ✅ I've joined."""
     pos = await db_call(gate.position, update.effective_user.id)
     if pos is None:
         return

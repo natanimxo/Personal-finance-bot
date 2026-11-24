@@ -142,7 +142,8 @@ def test_a_new_user_needs_the_current_channel_at_once(three):
         async with Harness() as h:
             h.request.member_status = "left"
             out = await h.text(BTN_HISTORY)                     # their very first action
-            assert f"This period's channel: Title of {TWO} — 25 days left" in out.texts[0]
+            assert out.texts[0] == "👋 Welcome to Wallet Buddy!\nIt's completely free. Just join our channel to get started."
+            assert out.buttons()[0] == {"text": f"📢 Join Title of {TWO}", "url": LINKS[TWO]}
 
     run(scenario())
 
@@ -238,13 +239,16 @@ def test_leaving_the_current_channel_blocks_the_next_action(three):
             assert not membership.membership_cache.fresh((UID, ONE))   # cache cleared at once
 
             out = await h.text(BTN_HISTORY)
-            assert f"You left Title of {ONE}" in out.texts[0] and "Rejoin to keep using the bot" in out.texts[0]
-            assert "— 25 days left" in out.texts[0]
+            assert out.texts[0] == (f"Looks like you left Title of {ONE}. Rejoin to keep using Wallet Buddy. "
+                                    "Your data is safe.")
             assert out.buttons()[0] == {"text": f"📢 Join Title of {ONE}", "url": LINKS[ONE]}
 
+            out = await h.tap("recheck_sub")                     # not back yet
+            answers = [p.get("text") for e, p in h.request.calls if e == "answerCallbackQuery"]
+            assert answers[-1] == "We couldn't find you in the channel yet. Tap Join, then try again."
             h.request.member_status = "member"
             out = await h.tap("recheck_sub")
-            assert "You're in" in out.texts[0]
+            assert out.texts[0] == "✅ You're in! Welcome to Wallet Buddy."
 
     run(scenario())
     assert events(UID) == [(ONE, 0, "already_member"), (ONE, 0, "left"), (ONE, 0, "shown"), (ONE, 0, "rejoined")]
@@ -282,7 +286,7 @@ def test_never_interrupted_mid_entry_and_data_untouched(three):
             out = await h.tap("skip_note")
             assert "Logged" in out.texts[-1]
             out = await h.text(BTN_HISTORY)                     # the next action is stopped
-            assert "You left" in out.texts[0]
+            assert "Looks like you left" in out.texts[0]
             assert len(transactions.list_recent(UID)) == 1       # and nothing was removed
 
     run(scenario())
@@ -303,7 +307,7 @@ def test_join_screen_names_the_channel_and_the_days_left(three):
         async with Harness() as h:
             h.request.member_status = "left"
             out = await h.text(BTN_HISTORY)
-            assert f"This period's channel: Title of {ONE} — 25 days left" in out.texts[0]
+            assert out.texts[0] == "👋 Welcome to Wallet Buddy!\nIt's completely free. Just join our channel to get started."
             join, joined = out.buttons()
             assert join == {"text": f"📢 Join Title of {ONE}", "url": LINKS[ONE]}
             assert joined == {"text": "✅ I've joined", "callback_data": "recheck_sub"}
@@ -349,7 +353,7 @@ def test_without_the_invite_right_no_join_button_and_an_alert(three, monkeypatch
 
             h.request.member_status = "left"
             out = await h.text(BTN_HISTORY)
-            assert "This period's channel" in out.texts[0]
+            assert "Welcome to Wallet Buddy" in out.texts[0]
             assert [b["text"] for b in out.buttons()] == ["✅ I've joined"]
 
     run(scenario())
@@ -443,8 +447,21 @@ def test_mini_app_gets_a_403_with_the_channel_link_and_days_left(three, monkeypa
         harness.request.member_status = "left"
         r = client.get("/api/me", headers={"Authorization": "tma " + make_init_data({"id": 8}, config.BOT_TOKEN)})
         assert r.status_code == 403                             # a brand-new user: no free period
-        assert r.json()["detail"] == {"error": "not_subscribed", "channel": f"Title of {TWO}",
-                                      "join_link": LINKS[TWO], "left": False, "days_left": 25}
+        assert r.json()["detail"] == {
+            "error": "not_subscribed", "title": "🔓 One quick step",
+            "body": "Wallet Buddy is free to use. Join our community channel to unlock it.",
+            "join_link": LINKS[TWO], "join_button": f"📢 Join Title of {TWO}", "joined_button": "✅ I've joined",
+            "not_yet": "We couldn't find you in the channel yet. Tap Join, then try again.",
+            "welcome": "✅ You're in! Welcome to Wallet Buddy."}
+        harness.request.statuses[(str(TWO), 8)] = "member"       # joins...
+        assert client.get("/api/me", headers={"Authorization": "tma " + make_init_data({"id": 8}, config.BOT_TOKEN)}
+                          ).status_code == 200
+        harness.request.member_status = "left"                    # ...and leaves again
+        harness.request.statuses.clear()
+        membership.membership_cache.clear()                       # (as a chat_member update would)
+        r = client.get("/api/me", headers={"Authorization": "tma " + make_init_data({"id": 8}, config.BOT_TOKEN)})
+        assert r.json()["detail"]["body"] == (f"Looks like you left Title of {TWO}. Rejoin to keep using "
+                                              "Wallet Buddy. Your data is safe.")
 
 
 # --- admin commands -------------------------------------------------------------------------------------
@@ -519,3 +536,38 @@ def test_gate_commands_are_admin_only(admin):
             assert len(gate.channels()) == 3 and gate.is_on()
 
     run(scenario())
+
+
+# --- what users see never explains the gate ------------------------------------------------------
+USER_FACING = ("gate.text", "gate.text_left", "gate.app_title", "gate.app_body", "gate.join", "gate.subscribed",
+               "gate.youre_in", "gate.confirmed", "gate.get_started", "gate.still_not")
+BANNED = ("period", "30", "day", "schedule", "rotat", "month", "every", "next", "other channel", "channels")
+
+
+@pytest.mark.parametrize("key", USER_FACING)
+def test_user_facing_gate_text_never_explains_the_gate(key):
+    from app.strings import EN
+    text = EN[key].lower()
+    assert not [word for word in BANNED if word in text], (key, EN[key])
+
+
+def test_exact_user_facing_texts():
+    from app.strings import t
+    assert t("gate.text") == "👋 Welcome to Wallet Buddy!\nIt's completely free. Just join our channel to get started."
+    assert t("gate.app_title") == "🔓 One quick step"
+    assert t("gate.app_body") == "Wallet Buddy is free to use. Join our community channel to unlock it."
+    assert t("gate.join", name="X") == "📢 Join X" and t("gate.subscribed") == "✅ I've joined"
+    assert t("gate.text_left", name="X") == "Looks like you left X. Rejoin to keep using Wallet Buddy. Your data is safe."
+    assert t("gate.still_not") == "We couldn't find you in the channel yet. Tap Join, then try again."
+    assert t("gate.confirmed") == "✅ You're in! Welcome to Wallet Buddy."
+
+
+def test_mini_app_join_screen_has_no_wording_of_its_own():
+    """The app shows only what the server sends, and its title is 22px."""
+    from pathlib import Path
+    static = Path(__file__).resolve().parent.parent / "app" / "web" / "static"
+    js = (static / "app.js").read_text(encoding="utf-8")
+    block = js[js.index('err.body.detail.error === "not_subscribed"'):js.index("err.status === 401")]
+    for word in ("period", "days", "30", "Join the channel", "This period", "free"):
+        assert word not in block, word
+    assert ".state.join h1 { font-size: 22px" in (static / "styles.css").read_text(encoding="utf-8")

@@ -122,7 +122,7 @@ def test_telegram_error_uses_last_known_result(db):
             h.request.member_error = False             # Telegram answers again: they left
             h.request.member_status = "left"
             out = await h.text(BTN_HISTORY)
-            assert "channel" in out.texts[0] and "No transactions" not in out.texts[0]
+            assert "Looks like you left" in out.texts[0] and "No transactions" not in out.texts[0]
 
     run(scenario())
 
