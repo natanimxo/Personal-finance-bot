@@ -4,6 +4,7 @@ from telegram.ext import ContextTypes
 
 from app.bot.handlers import budget_warning_text, entry_line
 from app.bot.keyboards import category_keyboard, esc, main_menu_keyboard
+from app.bot.app_hint import suggest_mini_app
 from app.bot.membership import require_subscription
 from app.db import db_call
 from app.services import accounts, categories, prefs, quick_entry, transactions
@@ -30,6 +31,7 @@ async def _save(update: Update, context: ContextTypes.DEFAULT_TYPE, parsed: dict
         await edit_query.edit_message_text(text, reply_markup=undo_keyboard(entry["id"]))
     else:
         await update.message.reply_text(text, reply_markup=undo_keyboard(entry["id"]))
+    await suggest_mini_app(context.bot, update.effective_chat.id, user_id)
 
 
 @require_subscription

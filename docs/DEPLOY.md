@@ -136,6 +136,22 @@ Then do the **phone test** below.
 
 ---
 
+## Switching to a different bot
+
+Change `BOT_TOKEN` on Railway; the redeploy does the rest:
+
+- the webhook, the **Open app** menu button and the command list are set for the
+  new bot at startup;
+- the channel gate forgets the old bot's invite links and, with the gate on, the new
+  bot makes its own (otherwise on `/gate_on`);
+- nothing in the code or the texts names a bot, so there is nothing to edit.
+
+By hand: make the new bot an **administrator with "Invite users via link"** in
+every gate channel (`/gate_list` shows ✅/❌ for each), and tell people to press
+**Start** in the new bot. Telegram only lets a bot message people who have started
+it, so recaps and recurring-entry messages reach each user only after that. The
+database (entries, budgets, accounts) belongs to the user ids, so it carries over.
+
 ## Optional: a staging bot
 
 A second environment lets you try changes before users see them:

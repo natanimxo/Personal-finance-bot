@@ -79,6 +79,15 @@ the category buttons, with the amount kept. Every quick entry has ↩️ Undo.
 - `/settings`: the ⚙️ Settings screen
 - `/export`: get your CSV now
 
+The "/" menu in Telegram is filled in automatically at every start (`setMyCommands`):
+the five commands above for everyone, and the admin commands too in the admin's own chat.
+Descriptions are in `app/strings.py` (`cmd.*`).
+
+**A nudge towards the Mini App:** people who log entries by hand in the chat get one
+short tip with an 📱 Open the app button after their first entry, then after every
+10th. Anyone who has opened the Mini App is never nudged, and nothing is sent when
+the Mini App has no https address.
+
 Admin only (the `ADMIN_CHAT_ID` account; anyone else gets no reply):
 
 - `/recap_now`: a preview of your own weekly recap (`/recap_now month` for the monthly one)

@@ -15,11 +15,13 @@ from app.services import (
     accounts, budgets, catalog, categories, periods, prefs, quick_entry, recurring, summaries, transactions,
 )
 from app.services.validation import ValidationError, parse_amount_minor
+from app.services import users as users_service
 from app.strings import t
 from app.web.auth import InitDataError, validate_init_data
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
+_app_users = set()
 
 Amount = Union[str, float, int]
 
@@ -39,6 +41,9 @@ async def current_user(request: Request, authorization: str = Header(default="")
     user_id = int(tg_user["id"])
     bot = request.app.state.application.bot
     await touch_user(user_id)  # a first visit starts the free month
+    if user_id not in _app_users:   # once per process: remember they use the app (no more nudges)
+        await db_call(users_service.app_opened, user_id)
+        _app_users.add(user_id)
     # The same rule as the bot, checked once per request (an app screen = starting an action).
     from app.bot.membership import check_access, join_details
 

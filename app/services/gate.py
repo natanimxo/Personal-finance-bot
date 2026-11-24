@@ -144,6 +144,20 @@ def remove_channel(number: int) -> Channel:
     return gone
 
 
+def note_bot(bot_id: int) -> bool:
+    """Remember which bot the stored invite links belong to. A link only works for the
+    bot that made it, so when the bot changes (a new token) every stored link is
+    forgotten and the new bot makes its own. True when links were cleared."""
+    stored = _setting("bot_id")
+    if stored == str(bot_id):
+        return False
+    with get_conn() as conn:
+        conn.execute("INSERT INTO gate_settings (key, value) VALUES ('bot_id', ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (str(bot_id),))
+        conn.execute("UPDATE gate_channels SET invite_link = NULL, invite_link_at = NULL")
+    return True
+
+
 def cache_title(chat_id: int, title: str):
     with get_conn() as conn:
         conn.execute("UPDATE gate_channels SET title = ?, title_at = ? WHERE chat_id = ?", (title, _stamp(), chat_id))
