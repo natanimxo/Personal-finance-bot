@@ -73,8 +73,8 @@ the category buttons, with the amount kept. Every quick entry has ↩️ Undo.
 
 ### Commands
 
-- `/start`: the welcome message and menu
-- `/help`: how it works
+- `/start`: the welcome (also shown after a new user's currency and timezone setup): a short message with an inline 📱 Open App button, then the main menu keyboard
+- `/help`: how it works, with the full list of buttons
 - `/cancel`: drop a half-finished entry
 - `/settings`: the ⚙️ Settings screen
 - `/export`: get your CSV now

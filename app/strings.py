@@ -82,29 +82,32 @@ EN.update({
 # --- /start and Help -----------------------------------------------------------------
 EN.update({
     "start.welcome": (
-        "👋 <b>Welcome!</b>\n\n"
-        "I'm your expense tracker. Everything works through the buttons below "
-        "— no typing commands needed.\n\n"
+        "👋 <b>Welcome to Wallet Buddy!</b>\n"
+        "Track your spending and income for free.\n\n"
+        "📱 Tap <b>Open App</b> for the full experience: charts, budgets and easy editing.\n"
+        "Or use the buttons below for quick entries right here in the chat."
+    ),
+    "start.open_app": "📱 Open App",
+    "help.text": (
+        "<b>How Wallet Buddy works</b>\n\n"
+        "<b>Add an entry</b>\n"
+        "1️⃣ Tap {add} or {add_income}\n"
+        "2️⃣ Type the amount\n"
+        "3️⃣ Tap a category\n"
+        "4️⃣ Tap an account (skipped when you've set a ⭐ default account)\n"
+        "5️⃣ Add a note, or skip it\n\n"
+        "Faster: just send <code>500 food lunch</code> or <code>+2000 salary</code>.\n\n"
+        "<b>The buttons</b>\n"
         "{add} — log a spend in 3 taps\n"
         "{add_income} — log income in 3 taps\n"
-        "{history} — see your recent transactions\n"
+        "{history} — see, edit or delete your entries\n"
         "{summary} — income, expenses, net and savings rate\n"
         "{budgets} — set spending limits &amp; get warned\n"
         "{accounts} — balances per account; add, rename or archive accounts\n"
-        "{settings} — currency, timezone, recaps, categories, recurring entries, export\n\n"
-        "I'll also message you every Monday at 08:00 your time with last week's recap, "
-        "and on the 1st with last month's."
-    ),
-    "help.text": (
-        "<b>How this works</b>\n\n"
-        "1️⃣ Tap {add} or {add_income}\n"
-        "2️⃣ Type the amount\n"
-        "3️⃣ Tap a category button\n"
-        "4️⃣ Tap an account. If you set a ⭐ default account, this step is skipped\n"
-        "5️⃣ Add a note, or skip it\n\n"
+        "{settings} — currency, timezone, categories, recurring entries, export\n\n"
+        "You'll get a weekly and monthly summary.\n\n"
         "Changed your mind? Tap {cancel} at any step, or any menu button.\n\n"
-        "Use the other buttons any time to check your history, totals, or budgets.\n\n"
-        "Faster: just send <code>500 food lunch</code> or <code>+2000 salary</code>."
+        "📱 For charts and easy editing, tap Open App."
     ),
 })
 

@@ -131,13 +131,12 @@ async def _timezone_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE, z
 
 
 async def _finish(update: Update, context: ContextTypes.DEFAULT_TYPE, p: dict):
-    from app.bot.handlers import welcome_text
+    from app.bot.handlers import send_welcome
 
     context.user_data.pop("setup", None)
     await db_call(accounts.ensure_accounts, update.effective_user.id)
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=t("onboard.done"),
-                                   reply_markup=main_menu_keyboard())
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=welcome_text())
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=t("onboard.done"))
+    await send_welcome(context.bot, update.effective_chat.id)
 
 
 async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
