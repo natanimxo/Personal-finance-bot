@@ -27,8 +27,10 @@ logger = logging.getLogger(__name__)
 # Counts as "in the channel". A restricted user is still a member if is_member is true.
 JOINED_STATUSES = {"creator", "administrator", "member"}
 CACHE_SECONDS = 15 * 60
-# Telegram's answer when the bot can't see the member list: the bot isn't an admin.
-NOT_ADMIN_ERRORS = ("member list is inaccessible", "not enough rights", "bot is not a member")
+# Telegram's answers when the bot can't see a channel's members: it isn't an admin
+# there, or isn't in the channel at all ("chat not found" for a channel it can't see).
+# Either way it's our setup, not the user's fault, so the check lets them through.
+NOT_ADMIN_ERRORS = ("member list is inaccessible", "not enough rights", "bot is not a member", "chat not found")
 
 
 def counts_as_joined(member) -> bool:
