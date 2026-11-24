@@ -17,14 +17,16 @@ def db(fresh_db):
     init_db()
 
 
-def test_new_users_start_with_cash_mpesa_bank_card(db):
-    assert accounts.choices(UID) == [("cash", "💵 Cash"), ("mobile_money", "📱 M-Pesa"), ("bank", "🏦 Bank"), ("card", "💳 Card")]
+def test_new_users_start_with_cash_bank_card_mobile_wallet(db):
+    assert accounts.choices(UID) == [("cash", "💵 Cash"), ("bank", "🏦 Bank"), ("card", "💳 Card"),
+                                     ("mobile_money", "📱 Mobile Wallet")]
 
 
-def test_default_accounts_are_configurable(db, monkeypatch):
-    monkeypatch.setattr(config, "DEFAULT_ACCOUNTS", "Cash,Telebirr,CBE Birr,Bank")
-    assert accounts.choices(5) == [("cash", "💵 Cash"), ("mobile_money", "📱 Telebirr"),
-                                   ("cbe_birr", "🏷️ CBE Birr"), ("bank", "🏦 Bank")]
+def test_the_defaults_can_be_renamed_and_extended(db):
+    accounts.rename_account(5, "mobile_money", "📱 Telebirr")
+    accounts.add_account(5, "PayPal")
+    assert accounts.choices(5) == [("cash", "💵 Cash"), ("bank", "🏦 Bank"), ("card", "💳 Card"),
+                                   ("mobile_money", "📱 Telebirr"), ("paypal", "PayPal")]
 
 
 def test_existing_users_keep_theirs(fresh_db):
@@ -90,7 +92,7 @@ def test_bot_add_rename_archive_restore(db):
     async def scenario():
         async with Harness() as h:
             out = await h.text(BTN_ACCOUNTS)
-            assert "M-Pesa" in out.texts[0]
+            assert "Mobile Wallet" in out.texts[0]
             await h.tap("acc:add")
             out = await h.text("Savings")
             assert "Added" in out.texts[0] and "Savings" in out.texts[-1]

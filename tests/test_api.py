@@ -29,6 +29,8 @@ def server(fresh_db, monkeypatch):
     monkeypatch.setattr(config, "PUBLIC_URL", "https://expenses.example.up.railway.app")
     harness = Harness()
     with TestClient(create_app(application=harness.app)) as client:
+        from app.services import prefs
+        prefs.set_prefs(UID, "KES", timezone="Africa/Nairobi")   # UID finished the first-start setup; OTHER didn't
         client.harness = harness
         client.fake = harness.request
         yield client
@@ -97,10 +99,15 @@ def test_non_member_gets_403_with_the_join_link(server):
 def test_me(server):
     body = server.get("/api/me", headers=auth()).json()
     assert body["user"]["id"] == UID
-    assert body["settings"] == {"currency": "KES", "recap_enabled": True, "monthly_recap_enabled": True}
-    # A new user starts with the plan's default accounts: Cash, M-Pesa, Bank, Card.
-    assert [(a["account"], a["label"]) for a in body["accounts"]] == [
-        ("cash", "💵 Cash"), ("mobile_money", "📱 M-Pesa"), ("bank", "🏦 Bank"), ("card", "💳 Card")]
+    assert body["settings"] == {"currency": "KES", "timezone": "Africa/Nairobi", "recap_enabled": True,
+                                "monthly_recap_enabled": True, "onboarded": True}
+    assert "USD" in body["currencies"] and "EUR" in body["currencies"]
+    # A new user has no currency or timezone yet, and starts with Cash, Bank, Card, Mobile Wallet.
+    new = server.get("/api/me", headers=auth(OTHER)).json()
+    assert new["settings"] == {"currency": None, "timezone": None, "recap_enabled": True,
+                               "monthly_recap_enabled": True, "onboarded": False}
+    assert [(a["account"], a["label"]) for a in new["accounts"]] == [
+        ("cash", "💵 Cash"), ("bank", "🏦 Bank"), ("card", "💳 Card"), ("mobile_money", "📱 Mobile Wallet")]
     assert body["default_account"] is None
     assert {c["key"] for c in body["categories"]["income"]} >= {"salary", "gift"}
 
@@ -201,9 +208,13 @@ def test_budgets_set_and_remove(server):
 
 def test_settings(server):
     r = server.put("/api/settings", headers=auth(), json={"currency": "etb", "recap_enabled": False})
-    assert r.json()["settings"] == {"currency": "ETB", "recap_enabled": False, "monthly_recap_enabled": True}
+    assert r.json()["settings"] == {"currency": "ETB", "timezone": "Africa/Nairobi", "recap_enabled": False,
+                                    "monthly_recap_enabled": True, "onboarded": True}
     assert server.get("/api/me", headers=auth()).json()["settings"]["currency"] == "ETB"
     assert server.put("/api/settings", headers=auth(), json={"currency": "birr"}).status_code == 422
+    r = server.put("/api/settings", headers=auth(), json={"timezone": "America/New_York"})
+    assert r.json()["settings"]["timezone"] == "America/New_York"
+    assert server.put("/api/settings", headers=auth(), json={"timezone": "Mars/Olympus"}).status_code == 422
 
 
 def test_recap_respects_the_off_switch(server):

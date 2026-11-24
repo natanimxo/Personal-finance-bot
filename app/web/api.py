@@ -15,6 +15,7 @@ from app.services import (
     accounts, budgets, catalog, categories, periods, prefs, quick_entry, recurring, summaries, transactions,
 )
 from app.services.validation import ValidationError, parse_amount_minor
+from app.strings import t
 from app.web.auth import InitDataError, validate_init_data
 
 logger = logging.getLogger(__name__)
@@ -30,16 +31,18 @@ class CurrentUser(SimpleNamespace):
 async def current_user(request: Request, authorization: str = Header(default="")) -> CurrentUser:
     scheme, _, init_data = authorization.partition(" ")
     if scheme.lower() != "tma" or not init_data:
-        raise HTTPException(401, detail={"error": "Open this page from the bot in Telegram."})
+        raise HTTPException(401, detail={"error": t("api.open_from_telegram")})
     try:
         tg_user = validate_init_data(init_data, config.BOT_TOKEN)
     except InitDataError as e:
-        raise HTTPException(401, detail={"error": "Your session is invalid or expired. Reopen the app.", "reason": str(e)})
+        raise HTTPException(401, detail={"error": t("api.session_expired"), "reason": str(e)})
     user_id = int(tg_user["id"])
     bot = request.app.state.application.bot
     if not await is_subscribed(SimpleNamespace(bot=bot), user_id):
         raise HTTPException(403, detail={"error": "not_subscribed", "join_link": config.CHANNEL_INVITE_LINK})
     await touch_user(user_id)
+    # Every date in this request (weeks, months, "today") is in the user's own timezone.
+    periods.set_zone(await db_call(periods.user_zone_name, user_id), user_id)
     return CurrentUser(id=user_id, first_name=tg_user.get("first_name", ""), username=tg_user.get("username"))
 
 
@@ -84,6 +87,7 @@ async def me(user: CurrentUser = Depends(current_user)):
     return {
         "user": {"id": user.id, "first_name": user.first_name, "username": user.username},
         "settings": settings,
+        "currencies": catalog_json["currencies"],
         "types": catalog_json["types"],
         "categories": await db_call(categories.as_json, user.id),
         # Every account with its label, balance and default flag.
@@ -100,7 +104,7 @@ async def summary(period: str = Query("week", pattern="^(week|month)$"),
     try:
         return await db_call(summaries.summary, user.id, period, date_from, date_to)
     except ValueError:
-        raise HTTPException(422, detail={"error": "Dates must look like 2026-11-23."})
+        raise HTTPException(422, detail={"error": t("api.bad_dates")})
 
 
 # --- transactions ----------------------------------------------------------------
@@ -146,7 +150,7 @@ async def list_transactions(cursor: Optional[str] = None, type: Optional[str] = 
     except ValidationError as e:
         return validation_response(e)
     except ValueError:
-        raise HTTPException(422, detail={"error": "Dates must look like 2026-11-23."})
+        raise HTTPException(422, detail={"error": t("api.bad_dates")})
     return {"items": [entry_json(e) for e in items], "next_cursor": next_cursor}
 
 
@@ -154,7 +158,7 @@ async def list_transactions(cursor: Optional[str] = None, type: Optional[str] = 
 async def create_transaction(body: NewEntry, request: Request, user: CurrentUser = Depends(current_user)):
     try:
         if body.repeat and body.repeat not in recurring.FREQUENCIES:
-            raise ValidationError("Repeat weekly or monthly.", "repeat")
+            raise ValidationError(t("error.repeat"), "repeat")
         amount_minor = parse_amount_minor(body.amount)
         account = body.account or await db_call(accounts.fallback_account, user.id)
         entry, warning = await db_call(
@@ -196,7 +200,7 @@ async def edit_transaction(entry_id: int, body: EntryChanges, request: Request,
     except ValidationError as e:
         return validation_response(e)
     if entry is None:
-        raise HTTPException(404, detail={"error": "No such entry."})
+        raise HTTPException(404, detail={"error": t("error.no_entry")})
     await notify_warning(request, user.id, warning)
     return {"entry": entry_json(entry), "warning": warning}
 
@@ -211,7 +215,7 @@ def _update(user_id, entry_id, changes):
 @router.delete("/transactions/{entry_id}")
 async def delete_transaction(entry_id: int, user: CurrentUser = Depends(current_user)):
     if not await db_call(transactions.delete_entry, user.id, entry_id):
-        raise HTTPException(404, detail={"error": "No such entry."})
+        raise HTTPException(404, detail={"error": t("error.no_entry")})
     return {"deleted": entry_id}
 
 
@@ -229,7 +233,7 @@ async def quick(body: QuickText, request: Request, user: CurrentUser = Depends(c
     except ValidationError as e:
         return validation_response(e)
     if parsed is None:
-        return JSONResponse(status_code=422, content={"error": "Start with an amount, like: 500 food lunch", "field": "text"})
+        return JSONResponse(status_code=422, content={"error": t("api.quick_needs_amount"), "field": "text"})
     draft = {"amount_minor": parsed.amount_minor, "type": parsed.type, "category": parsed.category,
              "account": parsed.account, "note": parsed.note, "date": parsed.day.isoformat() if parsed.day else None}
     if not parsed.category:
@@ -298,7 +302,7 @@ async def list_recurring(user: CurrentUser = Depends(current_user)):
 @router.delete("/recurring/{rule_id}")
 async def delete_recurring(rule_id: int, user: CurrentUser = Depends(current_user)):
     if not await db_call(recurring.delete_rule, user.id, rule_id):
-        raise HTTPException(404, detail={"error": "No such recurring entry."})
+        raise HTTPException(404, detail={"error": t("error.no_rule")})
     return {"deleted": rule_id}
 
 
@@ -383,12 +387,17 @@ class SettingsChange(BaseModel):
     currency: Optional[str] = None
     recap_enabled: Optional[bool] = None
     monthly_recap_enabled: Optional[bool] = None
+    timezone: Optional[str] = None  # IANA name, e.g. Europe/Berlin (the app sends the phone's own)
 
 
 @router.put("/settings")
 async def put_settings(body: SettingsChange, user: CurrentUser = Depends(current_user)):
     try:
-        return {"settings": await db_call(prefs.set_prefs, user.id, body.currency, body.recap_enabled,
-                                          body.monthly_recap_enabled)}
+        settings = await db_call(prefs.set_prefs, user.id, body.currency, body.recap_enabled,
+                                 body.monthly_recap_enabled, body.timezone)
     except ValidationError as e:
         return validation_response(e)
+    periods.set_zone(settings["timezone"], user.id)
+    if settings["onboarded"]:
+        await db_call(accounts.ensure_accounts, user.id)
+    return {"settings": settings}

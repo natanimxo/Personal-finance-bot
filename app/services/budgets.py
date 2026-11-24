@@ -39,6 +39,7 @@ def spent_minor(user_id: int, category: str, since: datetime) -> int:
         return row["total"] or 0
 
 
+@periods.in_user_zone
 def warning_for(user_id: int, category: str, now: datetime = None):
     """{"level": "near"|"over", ...} when this month's spending is at 80% or more of the limit."""
     limit = get_limit_minor(user_id, category)
@@ -59,6 +60,7 @@ def warning_for(user_id: int, category: str, now: datetime = None):
             "currency": get_prefs(user_id)["currency"]}
 
 
+@periods.in_user_zone
 def overview(user_id: int, now: datetime = None):
     """Every expense category with its limit (or None) and this month's spending."""
     since = periods.month_start(now)

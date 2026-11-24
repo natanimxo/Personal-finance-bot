@@ -13,8 +13,10 @@ import io
 
 from app.db import get_conn
 from app.services import accounts, catalog, categories, periods, prefs
+from app.strings import t
 
-HEADER = ["Date", "Type", "Category", "Account", "To account", "Amount", "Currency", "Note"]
+HEADER = t("csv.header").split(",")
+
 
 
 def _safe(text: str) -> str:
@@ -28,8 +30,9 @@ def _amount(minor: int) -> str:
     return f"{sign}{whole}.{cents:02d}"
 
 
+@periods.in_user_zone
 def csv_bytes(user_id: int) -> bytes:
-    currency = prefs.get_prefs(user_id)["currency"]
+    currency = prefs.get_prefs(user_id)["currency"] or ""
     names = accounts.names(user_id)
     labels = {t: categories.names(user_id, t) for t in catalog.TYPES}
     with get_conn() as conn:
@@ -43,13 +46,13 @@ def csv_bytes(user_id: int) -> bytes:
     writer.writerow(HEADER)
     for r in rows:
         if r["type"] == "transfer":
-            category, signed = "Transfer", r["amount_minor"]
+            category, signed = t("csv.transfer"), r["amount_minor"]
         else:
             category = labels[r["type"]].get(r["category"]) or catalog.label_for(r["category"], r["type"])
             signed = r["amount_minor"] if r["type"] == "income" else -r["amount_minor"]
         writer.writerow([
             periods.local_date_of(r["occurred_at"]).isoformat(),
-            r["type"].capitalize(),
+            t(f"csv.{r['type']}"),
             _safe(_plain(category)),
             _safe(_plain(names.get(r["account"], r["account"]))),
             _safe(_plain(names.get(r["to_account"], r["to_account"] or ""))) if r["to_account"] else "",
@@ -66,5 +69,8 @@ def _plain(label: str) -> str:
     return parts[1] if len(parts) == 2 and not parts[0].isalnum() else (label or "")
 
 
-def filename() -> str:
-    return f"expenses-{periods.today().isoformat()}.csv"
+def filename(user_id: int = None) -> str:
+    if user_id is not None:
+        with periods.for_user(user_id):
+            return t("csv.filename", day=periods.today().isoformat())
+    return t("csv.filename", day=periods.today().isoformat())

@@ -35,6 +35,8 @@ def test_railway_config_matches_the_plan():
 
 def test_every_variable_is_in_env_example():
     example = (REPO / ".env.example").read_text(encoding="utf-8")
-    for var in ("BOT_TOKEN", "CHANNEL_ID", "CHANNEL_LINK", "DB_PATH", "PUBLIC_URL", "WEBHOOK_SECRET", "APP_TIMEZONE",
-                "DEFAULT_CURRENCY", "DEFAULT_ACCOUNTS", "ADMIN_CHAT_ID", "USE_POLLING", "PORT"):
+    for var in ("BOT_TOKEN", "CHANNEL_ID", "CHANNEL_LINK", "DB_PATH", "PUBLIC_URL", "WEBHOOK_SECRET",
+                "ADMIN_CHAT_ID", "USE_POLLING", "PORT"):
         assert f"\n{var}=" in example or example.startswith(f"{var}="), var
+    for gone in ("APP_TIMEZONE", "DEFAULT_CURRENCY", "DEFAULT_ACCOUNTS"):   # each user picks their own now
+        assert f"{gone}=" not in example, gone

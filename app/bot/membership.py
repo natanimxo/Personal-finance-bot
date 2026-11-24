@@ -10,7 +10,8 @@ from telegram.ext import ContextTypes
 from app import config
 from app.bot.keyboards import esc, main_menu_keyboard
 from app.db import db_call
-from app.services import users
+from app.services import periods, prefs, users
+from app.strings import t
 
 logger = logging.getLogger(__name__)
 
@@ -85,9 +86,15 @@ def forget_active(user_id: int):
 
 
 async def track_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Runs before every other handler (group -1)."""
-    if update.effective_user and not update.effective_user.is_bot:
-        await touch_user(update.effective_user.id)
+    """Runs before every other handler (group -2): marks the sender active, and makes
+    their own timezone the one used for the rest of this update."""
+    user = update.effective_user
+    if user and not user.is_bot:
+        await touch_user(user.id)
+        # Looked up in a worker thread but set here, on the event loop, so it sticks.
+        periods.set_zone(await db_call(periods.user_zone_name, user.id), user.id)
+    else:
+        periods.set_zone(periods.FALLBACK_ZONE)
 
 
 # ---------------------------------------------------------------------------
@@ -96,22 +103,13 @@ async def track_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def gate_keyboard():
     buttons = []
     if config.CHANNEL_INVITE_LINK:
-        buttons.append([InlineKeyboardButton("📢 Join the channel", url=config.CHANNEL_INVITE_LINK)])
-    buttons.append([InlineKeyboardButton("✅ I've subscribed", callback_data="recheck_sub")])
+        buttons.append([InlineKeyboardButton(t("gate.join"), url=config.CHANNEL_INVITE_LINK)])
+    buttons.append([InlineKeyboardButton(t("gate.subscribed"), callback_data="recheck_sub")])
     return InlineKeyboardMarkup(buttons)
 
 
 def gate_text() -> str:
-    return (
-        "🔒 <b>Welcome to your expense tracker!</b>\n\n"
-        "Here's what I do:\n"
-        "• Log spending in 3 taps\n"
-        "• Warn you the moment you're near a budget\n"
-        "• Send you a spending recap every Monday\n\n"
-        "This bot is free — you just need to join my channel first:\n"
-        f"{esc(config.CHANNEL_INVITE_LINK)}\n\n"
-        "Then tap ✅ below."
-    )
+    return t("gate.text", link=esc(config.CHANNEL_INVITE_LINK))
 
 
 async def send_gate(update: Update):
@@ -135,12 +133,19 @@ async def recheck_sub_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     user_id = query.from_user.id
     if await is_subscribed(context, user_id, live=True):
         await touch_user(user_id)
-        await query.answer("You're in! 🎉")
-        await query.edit_message_text("✅ Subscription confirmed! Here's your menu 👇")
+        await query.answer(t("gate.youre_in"))
+        p = await db_call(prefs.get_prefs, user_id)
+        if not p["onboarded"]:  # a new user: currency and timezone first
+            from app.bot.onboarding import begin
+
+            await query.edit_message_reply_markup(reply_markup=None)
+            await begin(context, update.effective_chat.id, p)
+            return
+        await query.edit_message_text(t("gate.confirmed"))
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="Tap a button to get started.",
+            text=t("gate.get_started"),
             reply_markup=main_menu_keyboard(),
         )
     else:
-        await query.answer("Still not subscribed — join the channel first.", show_alert=True)
+        await query.answer(t("gate.still_not"), show_alert=True)

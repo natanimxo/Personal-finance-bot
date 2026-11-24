@@ -3,6 +3,7 @@ import re
 from decimal import Decimal, InvalidOperation
 
 from app.services import catalog
+from app.strings import t
 
 MAX_AMOUNT = 100_000_000
 MAX_NOTE_LENGTH = 200
@@ -23,14 +24,14 @@ AmountError = ValidationError  # older name used by the bot
 def _decimal(text: str) -> Decimal:
     cleaned = str(text).strip().replace(",", "").replace(" ", "").replace("\u00a0", "")
     if not re.fullmatch(r"\d+(\.\d+)?|\.\d+", cleaned):
-        raise ValidationError("That doesn't look like an amount.", "amount")
+        raise ValidationError(t("error.not_amount"), "amount")
     value = Decimal(cleaned)
     if value <= 0:
-        raise ValidationError("The amount has to be more than 0.", "amount")
+        raise ValidationError(t("error.amount_zero"), "amount")
     if -value.as_tuple().exponent > 2 and value != value.quantize(Decimal("0.01")):
-        raise ValidationError("Use at most 2 decimal places.", "amount")
+        raise ValidationError(t("error.decimals"), "amount")
     if value > MAX_AMOUNT:
-        raise ValidationError(f"That's more than the maximum of {MAX_AMOUNT:,}.", "amount")
+        raise ValidationError(t("error.amount_max", max=MAX_AMOUNT), "amount")
     return value
 
 
@@ -43,12 +44,12 @@ def parse_amount(text: str) -> float:
 def parse_amount_minor(value) -> int:
     """An amount (text or number) as integer cents, with the same rules."""
     if isinstance(value, bool):
-        raise ValidationError("That doesn't look like an amount.", "amount")
+        raise ValidationError(t("error.not_amount"), "amount")
     if isinstance(value, (int, float)):
         try:
             value = format(Decimal(str(value)).normalize(), "f")
         except InvalidOperation:
-            raise ValidationError("That doesn't look like an amount.", "amount")
+            raise ValidationError(t("error.not_amount"), "amount")
     return int(_decimal(value) * 100)
 
 
@@ -59,22 +60,31 @@ def to_minor(amount) -> int:
 
 def check_type(type_: str) -> str:
     if type_ not in catalog.TYPES:
-        raise ValidationError("Type must be expense or income.", "type")
+        raise ValidationError(t("error.type"), "type")
     return type_
 
 
 def check_note(note) -> str:
     note = (note or "").strip()
     if len(note) > MAX_NOTE_LENGTH:
-        raise ValidationError(f"Notes can be up to {MAX_NOTE_LENGTH} characters.", "note")
+        raise ValidationError(t("error.note_length", max=MAX_NOTE_LENGTH), "note")
     return note
 
 
 def check_currency(code: str) -> str:
     code = (code or "").strip().upper()
     if not CURRENCY.match(code):
-        raise ValidationError("Currency must be a 3-letter code, like KES or ETB.", "currency")
+        raise ValidationError(t("error.currency"), "currency")
     return code
+
+
+def check_timezone(name: str) -> str:
+    from app.services import timezones
+
+    name = (name or "").strip()
+    if not timezones.is_valid(name):
+        raise ValidationError(t("error.timezone"), "timezone")
+    return name
 
 
 EARLIEST = "2000-01-01"
@@ -93,7 +103,7 @@ def check_date(day, now=None):
     except ValueError as e:
         raise ValidationError(str(e), "date")
     if d > periods.today(now):
-        raise ValidationError("The date can't be in the future.", "date")
+        raise ValidationError(t("error.date_future"), "date")
     if d.isoformat() < EARLIEST:
-        raise ValidationError("That date is too far back.", "date")
+        raise ValidationError(t("error.date_too_old"), "date")
     return d

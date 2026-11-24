@@ -33,7 +33,7 @@ from tests.fake_telegram import Harness  # noqa: E402
 
 USERS = int(sys.argv[1]) if len(sys.argv) > 1 else 1000
 ENTRIES = 5
-WEDNESDAY = datetime(2026, 11, 25, 9, tzinfo=timezone.utc)
+MONDAY = datetime(2026, 11, 23, 8, tzinfo=timezone.utc)  # 08:00 UTC: recap due for users on UTC
 failures = []
 
 
@@ -70,7 +70,7 @@ def part1():
 async def part2():
     async with Harness(rate_limit=30) as h:
         started = time.monotonic()
-        stats = await recap.run_recap(SimpleNamespace(bot=h.app.bot), now=WEDNESDAY)
+        stats = await recap.run_recap(SimpleNamespace(bot=h.app.bot), now=MONDAY)
         elapsed = time.monotonic() - started
         print(f"2. Recap to {USERS} users: {stats} in {elapsed:.1f}s "
               f"({stats['sent'] / elapsed:.1f} msg/s), 429 responses: {h.request.too_many}")

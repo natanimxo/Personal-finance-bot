@@ -1,5 +1,8 @@
-"""Problem 4: one definition of week and month, in APP_TIMEZONE (default Africa/Nairobi, UTC+3)."""
+"""Problem 4: one definition of week and month, in the user's timezone. These use
+Africa/Nairobi (UTC+3); tests/test_worldwide.py covers other zones."""
 from datetime import datetime, timezone
+
+import pytest
 
 from app.services import budgets, periods, summaries, transactions
 from app.db import get_conn, init_db
@@ -9,6 +12,12 @@ UTC = timezone.utc
 
 def utc(*args):
     return datetime(*args, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def nairobi():
+    with periods.use_zone("Africa/Nairobi"):
+        yield
 
 
 def test_week_starts_monday_midnight_local():

@@ -2,9 +2,10 @@
 bot and the Mini App can never disagree. Amounts are integer cents (amount_minor)."""
 from datetime import date, datetime, timedelta, timezone
 
-from app import config
 from app.db import get_conn
 from app.services import accounts, budgets, catalog, categories, periods, validation
+from app.services.periods import in_user_zone
+from app.strings import t
 
 COLUMNS = ("id, user_id, amount_minor, category, note, created_at, occurred_at, type, account, to_account, "
            "(SELECT a.name FROM accounts a WHERE a.user_id = expenses.user_id AND a.key = expenses.account) "
@@ -23,9 +24,9 @@ def _entry(row):
         return None
     entry = dict(row)
     entry["amount"] = entry["amount_minor"] / 100  # convenience for display code
-    entry["currency"] = entry.get("currency") or config.DEFAULT_CURRENCY
+    entry["currency"] = entry.get("currency")  # None until the user picks one
     if entry["type"] == TRANSFER:
-        entry["category_name"] = "🔁 Transfer"
+        entry["category_name"] = t("entry.transfer_category")
     elif not entry.get("category_name"):
         entry["category_name"] = catalog.label_for(entry["category"], entry["type"])
     return entry
@@ -44,9 +45,10 @@ def get_entry(user_id: int, entry_id: int):
 
 def _check_amount(amount_minor):
     if not isinstance(amount_minor, int) or amount_minor <= 0 or amount_minor > validation.MAX_AMOUNT * 100:
-        raise validation.ValidationError("Invalid amount.", "amount")
+        raise validation.ValidationError(t("error.invalid_amount"), "amount")
 
 
+@in_user_zone
 def add_transfer(user_id: int, amount_minor: int, from_account: str, to_account: str, note: str = "", day=None):
     """Move money between two of the user's accounts. Never income or expense."""
     day = validation.check_date(day)
@@ -54,7 +56,7 @@ def add_transfer(user_id: int, amount_minor: int, from_account: str, to_account:
     accounts.check_active(user_id, from_account)
     accounts.check_active(user_id, to_account)
     if from_account == to_account:
-        raise validation.ValidationError("Pick two different accounts.", "to_account")
+        raise validation.ValidationError(t("error.same_accounts"), "to_account")
     note = validation.check_note(note)
     with get_conn() as conn:
         cur = conn.execute(
@@ -76,6 +78,7 @@ def _warning(user_id: int, entry):
     return budgets.warning_for(user_id, entry["category"])
 
 
+@in_user_zone
 def add_entry(user_id: int, amount_minor: int, type_: str, category: str, account: str, note: str = "",
               day=None):
     """Validate and save an entry. `day` is the local date it happened (default today).
@@ -86,7 +89,7 @@ def add_entry(user_id: int, amount_minor: int, type_: str, category: str, accoun
     accounts.check_active(user_id, account)
     note = validation.check_note(note)
     if not isinstance(amount_minor, int) or amount_minor <= 0 or amount_minor > validation.MAX_AMOUNT * 100:
-        raise validation.ValidationError("Invalid amount.", "amount")
+        raise validation.ValidationError(t("error.invalid_amount"), "amount")
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO expenses (user_id, amount, amount_minor, category, note, created_at, occurred_at, type, account) "
@@ -99,6 +102,7 @@ def add_entry(user_id: int, amount_minor: int, type_: str, category: str, accoun
     return entry, _warning(user_id, entry)
 
 
+@in_user_zone
 def update_entry(user_id: int, entry_id: int, **changes):
     """Change any of amount_minor, type, category, account, note, day (a local date).
     Returns (entry, budget_warning) or (None, None) if the entry isn't the user's."""
@@ -114,12 +118,12 @@ def update_entry(user_id: int, entry_id: int, **changes):
     merged = {k: current[k] for k in ("amount_minor", "type", "category", "account", "to_account", "note")}
     merged.update({k: v for k, v in changes.items() if v is not None})
     if (current["type"] == TRANSFER) != (merged["type"] == TRANSFER):
-        raise validation.ValidationError("A transfer can't become income or an expense (or the other way).", "type")
+        raise validation.ValidationError(t("error.transfer_type"), "type")
     if merged["type"] == TRANSFER:
         if merged["to_account"] != current["to_account"]:
             accounts.check_active(user_id, merged["to_account"])
         if merged["to_account"] == merged["account"]:
-            raise validation.ValidationError("Pick two different accounts.", "to_account")
+            raise validation.ValidationError(t("error.same_accounts"), "to_account")
     else:
         validation.check_type(merged["type"])
         if (merged["category"], merged["type"]) != (current["category"], current["type"]):
@@ -130,7 +134,7 @@ def update_entry(user_id: int, entry_id: int, **changes):
     merged["note"] = validation.check_note(merged["note"])
     amount_minor = merged["amount_minor"]
     if not isinstance(amount_minor, int) or amount_minor <= 0 or amount_minor > validation.MAX_AMOUNT * 100:
-        raise validation.ValidationError("Invalid amount.", "amount")
+        raise validation.ValidationError(t("error.invalid_amount"), "amount")
     with get_conn() as conn:
         conn.execute(
             "UPDATE expenses SET amount = ?, amount_minor = ?, type = ?, category = ?, account = ?, to_account = ?, "
@@ -163,9 +167,10 @@ def parse_cursor(cursor: str):
         datetime.fromisoformat(occurred_at)
         return occurred_at, int(entry_id)
     except ValueError:
-        raise validation.ValidationError("Invalid cursor.", "cursor")
+        raise validation.ValidationError(t("error.cursor"), "cursor")
 
 
+@in_user_zone
 def list_entries(user_id: int, cursor: str = None, type_: str = None, category: str = None, account: str = None,
                  date_from: str = None, date_to: str = None, q: str = None, limit: int = PAGE_SIZE):
     """Newest first (by the date it happened, then id). Returns (entries, next_cursor); next_cursor

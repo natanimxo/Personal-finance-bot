@@ -2,37 +2,25 @@
 
 Entries store an account *key*; the name is only for display, so renaming keeps
 history and balance. Existing users were given their four original accounts by
-migration 005; anyone else gets DEFAULT_ACCOUNTS (default: Cash, M-Pesa, Bank,
-Card) the first time their accounts are read.
+migration 005; anyone else starts with Cash, Bank, Card and Mobile Wallet the
+first time their accounts are read, and can rename them or add their own.
 """
 import re
 
-from app import config
 from app.db import get_conn
 from app.services.validation import ValidationError
+from app.strings import t
 
 MAX_ACCOUNTS = 12
 MAX_NAME = 30
-# Names in DEFAULT_ACCOUNTS that map onto the original keys, so old code paths and
-# aliases keep working. The first other name becomes the mobile-money account.
-KNOWN = {"cash": ("cash", "💵"), "bank": ("bank", "🏦"), "card": ("card", "💳")}
+# What a new user starts with, anywhere in the world. The keys are the original
+# ones, so quick-entry words (cash, bank, card, wallet, momo...) keep matching.
+DEFAULT_ACCOUNTS = [("cash", "💵 Cash"), ("bank", "🏦 Bank"), ("card", "💳 Card"), ("mobile_money", "📱 Mobile Wallet")]
 
 
 def default_accounts():
-    """[(key, name)] for a new user, from DEFAULT_ACCOUNTS."""
-    names = [n.strip() for n in (config.DEFAULT_ACCOUNTS or "").split(",") if n.strip()] or ["Cash", "M-Pesa", "Bank", "Card"]
-    result, used = [], set()
-    for name in names[:MAX_ACCOUNTS]:
-        known = KNOWN.get(name.lower())
-        if known and known[0] not in used:
-            key, icon = known
-        elif "mobile_money" not in used:
-            key, icon = "mobile_money", "📱"
-        else:
-            key, icon = _slug(name, used), "🏷️"
-        used.add(key)
-        result.append((key, f"{icon} {name}"))
-    return result
+    """[(key, name)] for a new user."""
+    return list(DEFAULT_ACCOUNTS)
 
 
 RESERVED = {"cash", "bank", "card", "mobile_money"}
@@ -81,19 +69,19 @@ def names(user_id: int) -> dict:
 
 def check_active(user_id: int, key: str) -> str:
     if key not in {a["key"] for a in list_accounts(user_id)}:
-        raise ValidationError("Unknown account.", "account")
+        raise ValidationError(t("error.unknown_account"), "account")
     return key
 
 
 def _check_name(user_id: int, name: str, except_key: str = None) -> str:
     name = " ".join((name or "").split())
     if not name:
-        raise ValidationError("Give the account a name.", "name")
+        raise ValidationError(t("error.account_name_empty"), "name")
     if len(name) > MAX_NAME:
-        raise ValidationError(f"Account names can be up to {MAX_NAME} characters.", "name")
+        raise ValidationError(t("error.account_name_length", max=MAX_NAME), "name")
     for a in list_accounts(user_id, include_archived=True):
         if a["key"] != except_key and _plain(a["name"]) == _plain(name):
-            raise ValidationError("You already have an account with that name.", "name")
+            raise ValidationError(t("error.account_name_taken"), "name")
     return name
 
 
@@ -104,7 +92,7 @@ def _plain(name: str) -> str:
 def add_account(user_id: int, name: str) -> dict:
     accounts = list_accounts(user_id, include_archived=True)
     if len(accounts) >= MAX_ACCOUNTS:
-        raise ValidationError(f"You can have up to {MAX_ACCOUNTS} accounts.", "name")
+        raise ValidationError(t("error.account_limit", max=MAX_ACCOUNTS), "name")
     name = _check_name(user_id, name)
     key = _slug(_plain(name), {a["key"] for a in accounts})
     with get_conn() as conn:
@@ -119,7 +107,7 @@ def rename_account(user_id: int, key: str, name: str) -> dict:
     name = _check_name(user_id, name, except_key=key)
     with get_conn() as conn:
         if not conn.execute("UPDATE accounts SET name = ? WHERE user_id = ? AND key = ?", (name, user_id, key)).rowcount:
-            raise ValidationError("Unknown account.", "account")
+            raise ValidationError(t("error.unknown_account"), "account")
     return {"key": key, "name": name}
 
 
@@ -127,11 +115,11 @@ def set_archived(user_id: int, key: str, archived: bool = True):
     """Archive (hide from pickers; history and balance stay) or restore an account."""
     active = list_accounts(user_id)
     if archived and [a["key"] for a in active] == [key]:
-        raise ValidationError("You need at least one account that isn't archived.", "account")
+        raise ValidationError(t("error.last_account"), "account")
     with get_conn() as conn:
         if not conn.execute("UPDATE accounts SET archived = ? WHERE user_id = ? AND key = ?",
                             (int(archived), user_id, key)).rowcount:
-            raise ValidationError("Unknown account.", "account")
+            raise ValidationError(t("error.unknown_account"), "account")
         if archived:
             conn.execute("DELETE FROM user_settings WHERE user_id = ? AND default_account = ?", (user_id, key))
 

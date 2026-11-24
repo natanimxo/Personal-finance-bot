@@ -14,21 +14,22 @@ from app.bot.membership import require_subscription
 from app.db import db_call
 from app.services import periods, transactions
 from app.services.money import fmt
+from app.strings import t
 
 PAGE = 10
-FILTERS = [("all", "All"), ("expense", "Expenses"), ("income", "Income"), ("transfer", "Transfers")]
+FILTERS = [(key, t(f"history.{key}")) for key in ("all", "expense", "income", "transfer")]
 
 
 def _line(n: int, e) -> str:
-    day = f"{periods.local_date_of(e['occurred_at']):%d %b}"
+    day = periods.local_date_of(e["occurred_at"])
     if e["type"] == "transfer":
-        what = f"🔁 {fmt(e['amount_minor'], e['currency'])} {esc(account_name(e))} → " \
-               f"{esc(e.get('to_account_name') or e['to_account'])}"
+        what = t("history.transfer_what", amount=fmt(e["amount_minor"], e["currency"]),
+                 from_account=esc(account_name(e)), to_account=esc(e.get("to_account_name") or e["to_account"]))
     else:
         signed = e["amount_minor"] if e["type"] == "income" else -e["amount_minor"]
-        what = f"{fmt(signed, e['currency'], sign=True)} {esc(e['category_name'])}"
-    note = f" — {esc(e['note'])}" if e["note"] else ""
-    return f"<b>{n}.</b> {day}  {what}{note}"
+        what = t("history.entry_what", amount=fmt(signed, e["currency"], sign=True), category=esc(e["category_name"]))
+    note = t("history.note", note=esc(e["note"])) if e["note"] else ""
+    return t("history.line", n=n, day=day, what=what, note=note)
 
 
 async def render_page(context: ContextTypes.DEFAULT_TYPE, user_id: int, type_: str, index: int):
@@ -46,22 +47,24 @@ async def render_page(context: ContextTypes.DEFAULT_TYPE, user_id: int, type_: s
 
     label = dict(FILTERS)[type_]
     if not entries:
-        text = ("📋 No transactions yet. Tap {} or {}, or just send <code>500 food lunch</code>.".format(BTN_ADD, BTN_ADD_INCOME)
-                if type_ == "all" and index == 0 else f"📋 No {label.lower()} yet.")
+        if type_ == "all":
+            text = t("history.empty", add=BTN_ADD, add_income=BTN_ADD_INCOME)
+        else:
+            text = t(f"history.empty_{type_}")
     else:
         first = index * PAGE + 1
-        text = "\n".join([f"📋 <b>{label}</b> · {first}–{first + len(entries) - 1}, newest first", ""]
+        text = "\n".join([t("history.header", label=label, first=first, last=first + len(entries) - 1), ""]
                          + [_line(first + i, e) for i, e in enumerate(entries)]
-                         + ["", "Tap a number to edit or delete it."])
+                         + ["", t("history.tap_number")])
 
     numbers = [InlineKeyboardButton(str(index * PAGE + i + 1), callback_data=f"hopen:{e['id']}:{type_}:{index}")
                for i, e in enumerate(entries)]
     rows = [numbers[:5], numbers[5:]]
     nav = []
     if index > 0:
-        nav.append(InlineKeyboardButton("⬅️ Newer", callback_data=f"hpg:{type_}:{index - 1}"))
+        nav.append(InlineKeyboardButton(t("history.newer"), callback_data=f"hpg:{type_}:{index - 1}"))
     if next_cursor:
-        nav.append(InlineKeyboardButton("Older ➡️", callback_data=f"hpg:{type_}:{index + 1}"))
+        nav.append(InlineKeyboardButton(t("history.older"), callback_data=f"hpg:{type_}:{index + 1}"))
     rows.append(nav)
     rows.append([InlineKeyboardButton(("• " if key == type_ else "") + name, callback_data=f"hpg:{key}:0")
                  for key, name in FILTERS])
@@ -88,16 +91,17 @@ async def open_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, entry_id, type_, index = query.data.split(":")
     entry = await db_call(transactions.get_entry, update.effective_user.id, int(entry_id))
     if entry is None:
-        await query.answer("That entry was deleted.", show_alert=True)
+        await query.answer(t("common.entry_deleted"), show_alert=True)
         text, kb = await render_page(context, update.effective_user.id, type_, int(index))
         await query.edit_message_text(text, reply_markup=kb)
         return
     await query.answer()
     back = f"hpg:{type_}:{index}"
-    await query.edit_message_text(entry_line(entry).replace("Logged", "Entry", 1), reply_markup=InlineKeyboardMarkup([
-        [InlineKeyboardButton("✏️ Edit", callback_data=f"edit:{entry_id}"),
-         InlineKeyboardButton("🗑️ Delete", callback_data=f"hdel:{entry_id}:{type_}:{index}")],
-        [InlineKeyboardButton("↩️ Back to the list", callback_data=back)],
+    text = entry_line(entry).replace(t("entry.word_logged"), t("entry.word_entry"), 1)
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([
+        [InlineKeyboardButton(t("history.edit"), callback_data=f"edit:{entry_id}"),
+         InlineKeyboardButton(t("history.delete"), callback_data=f"hdel:{entry_id}:{type_}:{index}")],
+        [InlineKeyboardButton(t("history.back_to_list"), callback_data=back)],
     ]))
 
 
@@ -105,8 +109,8 @@ async def delete_from_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     _, entry_id, type_, index = query.data.split(":")
     ok = await db_call(transactions.delete_entry, update.effective_user.id, int(entry_id))
-    await query.answer("Deleted" if ok else "Already gone")
+    await query.answer(t("history.deleted_toast") if ok else t("history.gone_toast"))
     # The list moved under the cursors; start the pages again at the same filter.
     context.user_data.pop("history", None)
     text, kb = await render_page(context, update.effective_user.id, type_, 0)
-    await query.edit_message_text(("🗑️ Deleted.\n\n" if ok else "") + text, reply_markup=kb)
+    await query.edit_message_text((t("history.deleted") + "\n\n" if ok else "") + text, reply_markup=kb)

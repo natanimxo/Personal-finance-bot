@@ -3,7 +3,9 @@
 Track spending and income in Telegram: a **bot** for quick logging, and a
 **Mini App** (a web app that opens inside Telegram) with charts, filters and
 editing. Both share one database and one set of rules, so they never disagree.
-Users must be members of your channel. It runs as **one service on Railway**.
+Users must be members of your channel. It works **anywhere in the world**: each
+user picks their own currency and timezone the first time they start the bot.
+It runs as **one service on Railway**.
 
 - [What it does](#what-it-does) · [The bot](#the-bot) · [The Mini App](#the-mini-app)
 - [Configuration](#configuration) · [Local development](#local-development) · [Deploying](#deploying)
@@ -12,16 +14,29 @@ Users must be members of your channel. It runs as **one service on Railway**.
 ## What it does
 
 - Log expenses, income and transfers between accounts, for today or any past date.
-- One-line **quick entry**: `500 food lunch`, `+20000 salary`, `350 transport mpesa matatu`.
+- One-line **quick entry**: `500 food lunch`, `+20000 salary`, `350 transport wallet taxi`.
 - **Budgets** per category, with a warning at 80% and when you go over.
-- **Accounts** you name yourself (Cash, M-Pesa, Bank…), with balances and a default.
+- **Accounts** you name yourself (new users start with Cash, Bank, Card and Mobile Wallet), with balances and a default.
 - **Categories** you can add, rename and hide.
 - **Recurring** entries (rent, salary, subscriptions), logged automatically each week or month.
-- A **weekly recap** every Monday and a **monthly recap** on the 1st, compared with the period before.
+- A **weekly recap** every Monday and a **monthly recap** on the 1st, at 08:00 the user's own time, compared with the period before.
 - **CSV export** that opens in Excel and Google Sheets.
-- Your own **currency**, shown like `KES 1,500`.
+- Your own **currency** (shown like `USD 1,500`) and **timezone**, so weeks, months and budgets follow your clock.
+- Every bot message lives in one file, `app/strings.py`, ready for translation.
 
 ## The bot
+
+### First start
+
+After joining the channel, a new user answers two questions before anything else:
+
+1. **Currency:** a button per common currency (USD, EUR, GBP, INR, NGN, KES…), or ✏️ Other to type any 3-letter code.
+2. **Timezone:** 📍 Share my location, pick a region and then a city, or type a city (`London`, `Lagos`) or an
+   offset (`UTC+3`). The location is looked up offline; nothing is sent anywhere.
+
+Then the menu appears, with four accounts (Cash, Bank, Card, Mobile Wallet) to rename or add to.
+Both answers can be changed any time in ⚙️ Settings. Users from before this change are asked once, the next
+time they write.
 
 ### Main menu
 
@@ -33,7 +48,7 @@ Users must be members of your channel. It runs as **one service on Railway**.
 | 📊 Summary | This week (from Monday) or this month (from the 1st): income, expenses, net, savings rate, and spending by category |
 | 💰 Budgets | Your monthly limits; set one per expense category |
 | 🏦 Accounts | Balance per account and your ⭐ default. 🔁 Transfer moves money between accounts (it never counts as income or an expense). ➕ Add, ✏️ Rename and 🗄️ Archive accounts, and ♻️ restore archived ones. History and balances always stay |
-| ⚙️ Settings | Currency (from a list, or any 3-letter code), weekly and monthly recaps on/off, 🏷️ Categories (add, rename, hide or show again; a hidden category's past entries still count), 🔁 Recurring entries (stop any), 📤 Export CSV |
+| ⚙️ Settings | Currency (from a list, or any 3-letter code), 🕐 timezone, weekly and monthly recaps on/off, 🏷️ Categories (add, rename, hide or show again; a hidden category's past entries still count), 🔁 Recurring entries (stop any), 📤 Export CSV |
 | ❓ Help | How the flow works |
 | 📱 Open app | Opens the Mini App (shown once the service has an https address) |
 
@@ -47,12 +62,12 @@ Send a message that starts with an amount:
 
 - `500 food lunch`: expense 500, Food, note "lunch"
 - `+20000 salary`: a leading `+` means income
-- `350 transport mpesa matatu`: Transport, from the M-Pesa account, note "matatu"
+- `350 transport wallet taxi`: Transport, from the Mobile Wallet account, note "taxi"
 - `500 food yesterday`: dated yesterday
 
 Category and account words are matched case-insensitively. Your own names come
-first, then built-in aliases such as lunch → Food, matatu → Transport and
-mpesa → mobile money. The rest becomes the note. With no category word you get
+first, then built-in aliases such as lunch → Food, taxi → Transport and
+wallet / momo / mpesa → Mobile Wallet. The rest becomes the note. With no category word you get
 the category buttons, with the amount kept. Every quick entry has ↩️ Undo.
 
 ### Commands
@@ -71,16 +86,18 @@ Admin only (the `ADMIN_CHAT_ID` account; anyone else gets no reply):
 
 ### Messages the bot sends by itself
 
-| When (in `APP_TIMEZONE`) | What |
+| When (in each user's own timezone) | What |
 | --- | --- |
 | Monday 08:00 | Weekly recap for the previous Monday–Sunday: income and expenses with ↑/↓ % vs the week before, net, savings rate, top category |
 | The 1st, 08:00 | Monthly recap for the month that just ended, compared with the month before |
-| Daily 06:00 | Recurring entries that are due, each with ↩️ Undo |
-| Daily 03:00 | A database backup to the admin chat |
+| Daily from 06:00 | Recurring entries that are due, each with ↩️ Undo |
+| Daily 03:00 UTC | A database backup to the admin chat |
 | When you add or edit an expense | A budget warning at 80% and when you go over, also for entries made in the Mini App |
 
-Each recap can be switched off in Settings. Recaps are rate-limited and never
-sent twice, even if the service restarts halfway.
+An hourly job sends each recap once it is 08:00 (Monday, or the 1st) where the
+user lives, within a 24-hour window, so a restart still delivers it. Each recap
+can be switched off in Settings. Recaps are rate-limited and never sent twice,
+even if the service restarts halfway.
 
 ## The Mini App
 
@@ -95,7 +112,7 @@ requirement applies here too.
 | Add / Edit | Expense, income or transfer; amount, category, account (default preselected), date (today unless changed), note, and Repeat weekly or monthly |
 | Budgets | Each category's limit and this month's progress; set or remove a limit |
 | Accounts | Balances; add, rename, archive or restore; set the default |
-| Settings | Currency, both recaps, categories, recurring entries, and Export CSV (sent to your chat) |
+| Settings | Currency, timezone (the phone's own is used on a first visit), both recaps, categories, recurring entries, and Export CSV (sent to your chat) |
 
 It follows Telegram's light or dark theme and uses Telegram's main and back
 buttons. Try it locally without Telegram: `python scripts/preview_app.py`.
@@ -113,9 +130,6 @@ Set these on Railway (Variables) or, locally, in a `.env` file (see
 | `WEBHOOK_SECRET` | in production | 32+ random characters; Telegram sends it with every update |
 | `PUBLIC_URL` | for the Mini App | Base https URL. Default: `https://$RAILWAY_PUBLIC_DOMAIN` |
 | `ADMIN_CHAT_ID` | no | Your Telegram id: backups, error alerts, admin commands |
-| `APP_TIMEZONE` | no | For weeks, months, recaps and jobs (default `Africa/Nairobi`) |
-| `DEFAULT_CURRENCY` | no | Currency for new users (default `KES`) |
-| `DEFAULT_ACCOUNTS` | no | Accounts a new user starts with (default `Cash,M-Pesa,Bank,Card`; existing users keep their own) |
 | `DB_PATH` | no | Database file. Default: `$RAILWAY_VOLUME_MOUNT_PATH/expenses.db`, else an existing `./finance_bot.db`, else `./data/expenses.db` |
 | `USE_POLLING` | no | `true` for local development (no webhook needed) |
 | `PORT` | no | Set by Railway (default 8000) |
@@ -152,11 +166,13 @@ image runs on any VPS.
 app/
   main.py         builds the bot (handlers, jobs) and starts the web server
   config.py       every environment variable (and .env for local development)
+  strings.py      every message users see, keyed for translation: t("menu.add")
   db.py           SQLite connections, WAL settings, numbered migrations
-  migrations/     001_initial.sql ... 009_monthly_recap.sql, applied in order, once
+  migrations/     001_initial.sql ... 010_user_timezone.sql, applied in order, once
   services/       all the rules: entries, budgets, accounts, categories, periods,
-                  summaries, quick entry, recurring, recaps, backups, export
-  bot/            Telegram handlers, keyboards, conversations, membership check
+                  timezones, summaries, quick entry, recurring, recaps, backups, export
+  bot/            Telegram handlers, keyboards, conversations, membership check,
+                  first-start setup (onboarding.py)
   web/            FastAPI: initData auth, JSON API, webhook, /healthz, the Mini App files
 scripts/          preview_app.py, load_test.py
 tests/            pytest, driving the real handlers against a fake Telegram
@@ -168,6 +184,15 @@ tests/            pytest, driving the real handlers against a fake Telegram
   event loop. Without `WEBHOOK_SECRET` or an https address it falls back to
   polling, with a warning.
 - **One set of rules:** the bot handlers and the API both call `app/services/`.
+- **Each user's own clock:** there is no app-wide timezone or currency. The
+  timezone in force is a context variable, set for the user behind each bot
+  update and each API request; service functions that take a `user_id` switch to
+  that user's zone themselves (`@in_user_zone`), so jobs get it right too. Server
+  jobs such as the backup run on UTC.
+- **Translating:** every message is `t("key", value=...)` from `app/strings.py`.
+  Copy the `EN` table, translate the values (keep the `{placeholders}`) and add it
+  to `LANGUAGES`; `tests/test_strings.py` checks the keys and placeholders match.
+  The Mini App's own labels are still in `app/web/static/app.js`.
 - **Money** is stored as whole cents (`amount_minor`), so totals are exact.
   Entries keep two dates: when the money moved (`occurred_at`, used everywhere)
   and when it was logged (`created_at`).
@@ -189,7 +214,7 @@ tests/            pytest, driving the real handlers against a fake Telegram
 
 ## Backups and restore
 
-- **Every day at 03:00** the app writes `backups/expenses-YYYY-MM-DD.db` next to
+- **Every day at 03:00 UTC** the app writes `backups/expenses-YYYY-MM-DD.db` next to
   the database, using SQLite's backup API (safe while running). It keeps 7 daily
   and 4 weekly copies, and also sends a gzipped copy to `ADMIN_CHAT_ID`.
   `/backup_now` does the same at any time.
@@ -202,10 +227,12 @@ tests/            pytest, driving the real handlers against a fake Telegram
 
 ## Tests
 
-`pytest` runs about 240 tests in roughly 2½ minutes. They drive the real
+`pytest` runs about 560 tests (about 310 of them check the strings file) in
+roughly 2 minutes. They drive the real
 handlers and API against a fake Telegram, and reject any message that isn't
-valid Telegram HTML. They cover the 9 original bug fixes, periods and
-timezones, quick entry, budget thresholds at 80% and 100%, initData validation,
+valid Telegram HTML. They cover the 9 original bug fixes, the first-start setup
+(currency, timezone by button, city, offset or location), weeks, months, budgets,
+recaps and recurring entries in different users' timezones, quick entry, budget thresholds at 80% and 100%, initData validation,
 one user trying to reach another's entries, every API endpoint, migrations from
 the very first schema with no data lost, backup and restore, recaps, recurring
 entries, transfers and the CSV export.
