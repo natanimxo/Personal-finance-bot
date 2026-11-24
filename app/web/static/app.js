@@ -190,10 +190,10 @@
       const days = d.days_left ? ` (${d.days_left} more day${d.days_left === 1 ? "" : "s"})` : "";
       screen.replaceChildren(h("div", { class: "state" },
         h("div", { class: "big" }, "🔒"),
-        h("h1", {}, d.left ? `You left ${name}` : `This period's channel: ${name}`),
+        h("h1", {}, d.left ? `You left ${name}` : `This period's channel: ${name}${d.days_left ? ` — ${d.days_left} days left` : ""}`),
         h("p", {}, d.left
           ? `Rejoin to keep using the tracker. It's your channel for this period${days}. Your entries are all still here.`
-          : `The tracker is free. Every 30 days there's one channel to be in, and this is yours for this period${days}. You only need the current one.`),
+          : "The tracker is free. Every 30 days there's one channel everyone needs to be in, and you only need the current one."),
         link ? h("button", { class: "btn", onclick: () => (insideTelegram ? tg.openTelegramLink(link) : window.open(link)) }, `📢 Join ${name}`) : null,
         h("p", {}, h("button", { class: "btn secondary", onclick: () => boot() }, "✅ I've joined"))));
       return;

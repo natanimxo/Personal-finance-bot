@@ -351,14 +351,14 @@ EN.update({
 # --- the channel gate ----------------------------------------------------------------------
 EN.update({
     "gate.text": (
-        "🔒 <b>This period's channel: {name}</b>\n\n"
-        "The bot is free. Every 30 days there's one channel to be in, and this is yours for "
-        "the next {days} day(s). You only need the current one.\n\n"
+        "🔒 <b>This period's channel: {name} — {days} days left</b>\n\n"
+        "The bot is free. Every 30 days there's one channel everyone needs to be in, "
+        "and you only need the current one.\n\n"
         "Tap 📢 Join, then ✅ I've joined."
     ),
     "gate.text_left": (
         "🔒 <b>You left {name}.</b> Rejoin to keep using the bot.\n\n"
-        "It's your channel for this period ({days} more day(s)). Your entries are all still here.\n\n"
+        "This period's channel: {name} — {days} days left. Your entries are all still here.\n\n"
         "Tap 📢 Join, then ✅ I've joined."
     ),
     "gate.join": "📢 Join {name}",
@@ -391,13 +391,19 @@ EN.update({
         "   required now {required} · shown {shown} · joined via bot {joined_via_bot} · "
         "already members {already_member} · left {left} · rejoined {rejoined} · subscribed now {subscribed}"
     ),
-    "gate.free_users": "In their free first {free} days: {users} user(s)",
     "gate.rules": (
-        "Each user: days 1–{free} free, then one channel per {period} days in list order "
-        "(channel 1, channel 2, …), round the list again."
+        "One schedule for everyone, no free period: each {period}-day period has one channel, "
+        "in list order from the start channel, round again."
     ),
+    "gate.current": (
+        "📅 <b>Now:</b> {title} · period {n}, {start:%d %b %Y %H:%M} – {end:%d %b %Y %H:%M}, {days} days left\n"
+        "⏭️ <b>Next:</b> {next}"
+    ),
+    "gate.schedule_title": "🗓️ <b>Channel schedule</b> (times in {zone})",
+    "gate.schedule_line": "{n}. {title}: {start:%d %b %Y %H:%M} – {end:%d %b %Y %H:%M}",
+    "gate.schedule_now": " ← now, {days} days left",
     "gate.list_empty": "No channels yet. Forward a post from a channel to me, then reply to it with /gate_add.",
-    "gate.list_help": "/gate_add (reply to a forwarded channel post) · /gate_remove n · /gate_on · /gate_off · /gate_status · /gate_stats n",
+    "gate.list_help": "/gate_schedule · /gate_status · /gate_stats n · /gate_add (reply to a forwarded channel post) · /gate_remove n · /gate_on · /gate_off",
     "gate.add_how": "Forward any post from the channel to me, then reply to that forwarded post with /gate_add. (Or: /gate_add -100…)",
     "gate.add_not_numeric": "Channels are added by their numeric id, like <code>-1001234567890</code>. Forward a post from the channel and reply to it with /gate_add.",
     "gate.add_already": "That channel is already in the rotation.",

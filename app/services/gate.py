@@ -9,10 +9,11 @@ Everything lives in the database and is managed by the admin from the bot
   bot breaks nothing). Titles are fetched with getChat and cached for a day; each
   channel has one permanent "Finance Bot" invite link, made when the gate is
   turned on and replaced only if it gets revoked.
-- Each user on their own clock, from their first contact with the bot: days 1-30
-  are free; then each 30-day period has one required channel, in list order and
-  round again: days 31-60 channel 1, days 61-90 channel 2, ... Only the current
-  period's channel is ever checked; earlier ones don't matter any more.
+- One schedule for everyone, no free period: gate_settings.start_at and
+  start_channel. Period n = floor((now - start_at) / 30 days); its channel is the
+  one n places after the start channel in the list order, round again. Every user,
+  old or new, needs the same channel at the same moment. Only the current period's
+  channel is ever checked; earlier ones don't matter any more.
 - During a period the user must stay in that period's channel. Leaving it shows
   the join screen at their next action ("You left ..."), never mid-action.
 - ADMIN_CHAT_ID is never checked.
@@ -29,7 +30,6 @@ from app import config
 from app.db import get_conn
 
 MAX_CHANNELS = 6
-FREE_DAYS = 30
 PERIOD_DAYS = 30
 TITLE_CACHE_HOURS = 24
 INVITE_LINK_NAME = "Finance Bot"
@@ -50,10 +50,13 @@ class Channel:
 
 @dataclass(frozen=True)
 class Position:
-    """Where a user stands now: which period, which channel, how many days are left."""
-    period: int               # 1 for days 31-60, 2 for days 61-90, ...
+    """A period of the shared schedule: its number, channel, dates and the next channel."""
+    period: int               # global period n: 0 from the start date, then 1, 2, ...
     channel: Channel
-    days_left: int
+    days_left: int            # whole days until it ends, rounded up
+    starts_at: datetime = None
+    ends_at: datetime = None
+    next_channel: Channel = None
 
 
 def _now() -> datetime:
@@ -152,51 +155,72 @@ def store_invite_link(chat_id: int, link):
                      (link, _stamp() if link else None, chat_id))
 
 
-# --- who needs which channel ---------------------------------------------------------------------
+# --- the schedule: one for everyone ----------------------------------------------------------------
 def is_exempt(user_id: int) -> bool:
     return config.ADMIN_CHAT_ID is not None and user_id == config.ADMIN_CHAT_ID
 
 
-def days_since(first_start: str, now: datetime = None) -> int:
-    """Whole days since the user's first contact: 0 on their first day (day 1)."""
-    first = datetime.fromisoformat(first_start).replace(tzinfo=timezone.utc)
-    return max(0, ((now or _now()) - first).days)
-
-
-def period_for(days: int):
-    """1-based period for day `days` (0-based), or None in the free days.
-    days 0-29 (days 1-30): free; 30-59 (days 31-60): period 1; 60-89: period 2; ..."""
-    if days < FREE_DAYS:
-        return None
-    return (days - FREE_DAYS) // PERIOD_DAYS + 1
-
-
-def channel_index_for(days: int, count: int):
-    """The 0-based channel for day `days`, or None (free days, or no channels)."""
-    period = period_for(days)
-    if period is None or count == 0:
-        return None
-    return (period - 1) % count
-
-
-def first_start(user_id: int):
+def _setting(key: str):
     with get_conn() as conn:
-        row = conn.execute("SELECT first_start_at FROM users WHERE user_id = ?", (user_id,)).fetchone()
-    return row["first_start_at"] if row and row["first_start_at"] else None
+        row = conn.execute("SELECT value FROM gate_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def schedule_start():
+    """(start moment, start channel id) of the shared schedule."""
+    start = datetime.fromisoformat(_setting("start_at") or "2026-11-23T21:00:00").replace(tzinfo=timezone.utc)
+    channel = _setting("start_channel")
+    return start, int(channel) if channel else None
+
+
+def set_schedule(start_at: datetime, start_channel: int):
+    with get_conn() as conn:
+        for key, value in (("start_at", _stamp(start_at)), ("start_channel", str(start_channel))):
+            conn.execute("INSERT INTO gate_settings (key, value) VALUES (?, ?) "
+                         "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
+
+
+def period_number(now: datetime = None) -> int:
+    """n = floor((now - start) / 30 days); 0 before and during the first period."""
+    start, _ = schedule_start()
+    return max(0, ((now or _now()) - start) // timedelta(days=PERIOD_DAYS))
+
+
+def period_at(n: int, now: datetime = None, listed=None):
+    """Position for global period n: its channel (n places after the start channel,
+    round the list), its dates, the days left (from `now`) and the next channel."""
+    listed = listed if listed is not None else channels(now)
+    if not listed:
+        return None
+    start, start_channel = schedule_start()
+    ids = [c.chat_id for c in listed]
+    first = ids.index(start_channel) if start_channel in ids else 0
+    channel = listed[(first + n) % len(listed)]
+    following = listed[(first + n + 1) % len(listed)]
+    starts = start + timedelta(days=PERIOD_DAYS * n)
+    ends = starts + timedelta(days=PERIOD_DAYS)
+    remaining = ends - (now or _now())
+    days_left = max(0, -(-remaining // timedelta(days=1)))   # whole days, rounded up
+    return Position(n, channel, days_left, starts, ends, following)
+
+
+def current(now: datetime = None):
+    """The period everyone is in now, or None (no channels)."""
+    return period_at(period_number(now), now)
+
+
+def upcoming(count: int = 6, now: datetime = None):
+    """The current period and the ones after it."""
+    listed = channels(now)
+    n = period_number(now)
+    return [period_at(n + i, now, listed) for i in range(count)] if listed else []
 
 
 def position(user_id: int, now: datetime = None):
-    """The user's period and required channel now, or None (gate off, admin, free days)."""
+    """What this user must be in now, or None (gate off, the admin, no channels)."""
     if is_exempt(user_id) or not is_on():
         return None
-    listed = channels(now)
-    started = first_start(user_id)
-    days = days_since(started, now) if started else 0
-    index = channel_index_for(days, len(listed))
-    if index is None:
-        return None
-    period = period_for(days)
-    return Position(period, listed[index], FREE_DAYS + period * PERIOD_DAYS - days)
+    return current(now)
 
 
 def required_channel(user_id: int, now: datetime = None):
@@ -274,33 +298,26 @@ def channel_update(user_id: int, chat_id: int, is_member: bool, now: datetime = 
 
 # --- numbers for /gate_status and /gate_stats ------------------------------------------------------
 def stats(days: int = None, now: datetime = None) -> dict:
-    """{"free": users in their free days, "channels": [per channel: required (users who
-    need it now), shown, joined_via_bot, already_member, left, rejoined (distinct users,
-    within the last `days` days when given), subscribed (in it now, as last seen)]}."""
+    """{"current": the current Position, "channels": [per channel: required (users who
+    must be in it now: everyone but the admin, for the current channel), shown,
+    joined_via_bot, already_member, left, rejoined (distinct users, within the last
+    `days` days when given), subscribed (in it now this period, as last seen)]}."""
     now = now or _now()
     listed = channels(now)
     per = [dict(channel=c, required=0, subscribed=0, **{e: 0 for e in EVENTS}) for c in listed]
     by_id = {row["channel"].chat_id: row for row in per}
-    free = 0
+    pos = period_at(period_number(now), now, listed) if listed else None
     with get_conn() as conn:
-        current = {}
-        for r in conn.execute("SELECT user_id, first_start_at FROM users WHERE active = 1").fetchall():
-            if is_exempt(r["user_id"]):
-                continue
-            d = days_since(r["first_start_at"], now) if r["first_start_at"] else 0
-            index = channel_index_for(d, len(listed))
-            if index is None:
-                free += 1
-                continue
-            per[index]["required"] += 1
-            current[r["user_id"]] = (period_for(d), listed[index].chat_id)
-        for user_id, (period, chat_id) in current.items():
-            state = _state(conn, user_id, period)
-            if state and state["channel_id"] == chat_id and state["member_now"]:
-                by_id[chat_id]["subscribed"] += 1
+        if pos:
+            active = [r["user_id"] for r in conn.execute("SELECT user_id FROM users WHERE active = 1")
+                      if not is_exempt(r["user_id"])]
+            by_id[pos.channel.chat_id]["required"] = len(active)
+            by_id[pos.channel.chat_id]["subscribed"] = conn.execute(
+                "SELECT COUNT(*) FROM gate_user_periods WHERE period_number = ? AND channel_id = ? AND member_now = 1",
+                (pos.period, pos.channel.chat_id)).fetchone()[0]
         since = _stamp(now - timedelta(days=days)) if days else "0000"
         for r in conn.execute("SELECT channel_id, event, COUNT(DISTINCT user_id) AS n FROM gate_events "
                               "WHERE at >= ? GROUP BY channel_id, event", (since,)):
             if r["channel_id"] in by_id and r["event"] in EVENTS:
                 by_id[r["channel_id"]][r["event"]] = r["n"]
-    return {"free": free, "channels": per}
+    return {"current": pos, "channels": per}

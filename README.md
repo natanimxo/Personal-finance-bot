@@ -137,20 +137,28 @@ are no environment variables for it.
   `createChatInviteLink` when the gate is turned on (`/gate_on`, or at startup while
   it's on), stored, and reused. A new one is made only if the old one was revoked.
 
-### Rotation (per user, automatic)
+### The schedule (one for everyone, automatic)
 
-Counted from each user's first contact with the bot:
+There is no free period, and every user, old or new, needs the same channel at the
+same moment. The schedule is stored in the database: it started on **24 Nov 2026
+00:00 (Nairobi time)** with **We Talk A Lot**. Period *n* = the number of whole
+30-day blocks since the start; its channel is the one *n* places after the start
+channel in the list, round again:
 
-| Days | Required channel |
-| --- | --- |
-| 1–30 | none (free) |
-| 31–60 | channel 1 |
-| 61–90 | channel 2 |
-| … | the next one in the list |
-| after the last | channel 1 again |
+| Period | Dates (Nairobi) | Channel |
+| --- | --- | --- |
+| 0 | 24 Nov – 24 Dec 2026 | We Talk A Lot |
+| 1 | 24 Dec 2026 – 23 Jan 2027 | Crypto Alpha Edge US |
+| 2 | 23 Jan – 22 Feb 2027 | Hustle To Millions |
+| 3 | 22 Feb – 24 Mar 2027 | Crypto Wall Street |
+| 4 | 24 Mar – 23 Apr 2027 | Earn Stack |
+| 5 | 23 Apr – 23 May 2027 | Crypto Notebook |
+| 6 | 23 May – 22 Jun 2027 | We Talk A Lot again, and so on |
 
-Nothing has to be changed by hand each month. Only the current period's channel
-is checked; leaving a channel from an earlier period has no effect.
+Nothing has to be changed by hand. Only the current period's channel is checked;
+leaving a channel from an earlier period has no effect. A new user needs the
+current channel from their first action. `/gate_schedule` shows the current and
+next five periods with their dates.
 
 ### Staying in
 
@@ -164,8 +172,7 @@ is checked; leaving a channel from an earlier period has no effect.
 - **Leaving the current channel:** the bot gets a `chat_member` update (the webhook
   asks Telegram for them), drops that user's cached answer at once, and their next
   action shows *"You left <channel>. Rejoin to keep using the bot."*
-- **The join screen** names the channel, says it's this period's channel and how
-  many days are left, and has 📢 Join and ✅ I've joined. Without the invite right
+- **The join screen** says *This period's channel: \<title\> — \<n\> days left*, and has 📢 Join and ✅ I've joined. Without the invite right
   in that channel there is no Join button, and the admin gets an alert.
 - **If Telegram can't answer**, the last known answer is used, and a user is never
   blocked just because of an error. If the bot can't check a channel at all (not an
@@ -176,8 +183,8 @@ is checked; leaving a channel from an earlier period has no effect.
 
 ### Counting the members the bot brings in
 
-Every step is recorded in `gate_events`, only for the channel that was the user's
-required channel at that moment:
+Every step is recorded in `gate_events` with the global period number, only for the
+channel that was required at that moment:
 
 | Event | When |
 | --- | --- |
@@ -192,8 +199,9 @@ required channel at that moment:
 | Command | What it does |
 | --- | --- |
 | `/gate_on` / `/gate_off` | Start or stop checking. `/gate_on` also checks every channel (admin, invite right), makes the invite links, and reports anything that fails |
-| `/gate_list` | The rotation: order, title, id, bot admin ✅/❌, invite link ✅/❌ |
-| `/gate_status` | Per channel: users required to join it now, shown, joined via bot, already members, left, rejoined, still subscribed now; plus users in their free days |
+| `/gate_list` | The current channel, the period's start and end, days left and the next channel; then the list: order, title, id, bot admin ✅/❌, invite link ✅/❌ |
+| `/gate_schedule` | The current period and the next five, with their dates |
+| `/gate_status` | The current period (channel, dates, days left, next channel), then per channel: users required to be in it now, shown, joined via bot, already members, left, rejoined, still subscribed now |
 | `/gate_stats n` | The same numbers for the last *n* days |
 | `/gate_add` | Forward any post from the channel to the bot, then reply to it with `/gate_add`. The bot reads the id, checks it's an admin there, and adds it to the end (up to 6). `/gate_add -100…` works too |
 | `/gate_remove n` | Takes channel *n* out; the ones after it move up |

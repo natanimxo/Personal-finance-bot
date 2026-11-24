@@ -78,13 +78,16 @@ Wall Street. When you want it on:
 3. Send `/gate_on`. It checks every channel again, makes one "Finance Bot" invite
    link per channel (kept and reused; replaced only if revoked), and reports any
    channel that fails. The same check runs at every startup while the gate is on.
-4. Later: `/gate_status` for the numbers so far, `/gate_stats 30` for the last 30 days.
+4. `/gate_schedule` for the dates; later `/gate_status` for the numbers so far and
+   `/gate_stats 30` for the last 30 days.
 
-How it works for users: days 1–30 after their first contact are free; then one
-channel per 30-day period, in list order, round again (days 31–60 channel 1, 61–90
-channel 2, …). They must stay in the current period's channel: leaving it shows
-"You left …" at their next action. Earlier channels are never checked again. The
-admin account is never checked. To change the rotation: forward a post from a
+How it works for users: one schedule for everyone, no free period. It started on
+24 Nov 2026 00:00 (Nairobi) with We Talk A Lot; every 30 days the required channel
+moves to the next one in the list (Crypto Alpha Edge US, Hustle To Millions, Crypto
+Wall Street, Earn Stack, Crypto Notebook) and round again. Users must stay in the
+current channel: leaving it shows "You left …" at their next action. Earlier
+channels are never checked. The admin account is never checked. `/gate_schedule`
+lists the next periods with dates. To change the list: forward a post from a
 channel to the bot and reply to it with `/gate_add`; `/gate_remove n` takes one out.
 
 ## 5. Health check and replicas
@@ -178,7 +181,7 @@ Do this on a real phone, once in Telegram's light theme and once in dark.
 | The weekly recap arrives Monday 08:00 in each user's own timezone | Automated: `tests/test_worldwide.py` (Tokyo and New York users), `tests/test_better_recaps.py`. On Railway: `/recap_now`, then wait for Monday |
 | Every user picks their currency and timezone at first start | Automated: `tests/test_worldwide.py`. Phone test |
 | All bot text is in one file | Automated: `tests/test_strings.py` |
-| Channel gate: by numeric id in the database, off until /gate_on, 30 free days then one channel per 30 days, must stay in the current channel, one stored invite link, events counted | Automated: `tests/test_gate.py`. On Railway: `/gate_list`, `/gate_status` |
+| Channel gate: by numeric id in the database, off until /gate_on, one shared schedule (no free period), must stay in the current channel, one stored invite link, events counted | Automated: `tests/test_gate.py`. On Railway: `/gate_list`, `/gate_status` |
 | The Mini App opens from the menu button and works in light and dark themes | Phone test |
 | Entries match between the bot and the Mini App | Automated: `tests/test_api.py::test_entry_added_in_the_app_shows_in_bot_history_and_back`. Phone test |
 | Quick entry, editing, past dates and transfers work in both | Automated: `tests/test_quick_entry.py`, `test_edit_entries.py`, `test_past_dates.py`, `test_transfers.py`. Phone test |
