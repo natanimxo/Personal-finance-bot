@@ -155,13 +155,14 @@
     const showTabs = !["add", "edit"].includes(route);
     tabs.hidden = !showTabs;
     document.body.classList.toggle("no-tabs", !showTabs);
+    const tab = route === "accounts" ? "settings" : route;   // Accounts lives inside Settings
     tabs.querySelectorAll("button").forEach((b) =>
-      b.setAttribute("aria-current", b.dataset.route === route ? "page" : "false"));
+      b.setAttribute("aria-current", b.dataset.route === tab ? "page" : "false"));
     setMainButton(null);
     setBackButton(null);
     window.scrollTo(0, 0);
     const view = { home: viewHome, transactions: viewTransactions, add: viewEntry, edit: viewEntry,
-                   budgets: viewBudgets, accounts: viewAccounts, settings: viewSettings }[route];
+                   budgets: viewBudgets, income: viewIncome, accounts: viewAccounts, settings: viewSettings }[route];
     render(view, params);
   }
   tabs.addEventListener("click", (e) => {
@@ -355,10 +356,10 @@
 
   function anyFilter() { return Object.values(filters).some(Boolean); }
 
-  function entryRow(e) {
+  function entryRow(e, back = "transactions") {
     const transfer = e.type === "transfer";
     const signed = e.type === "income" ? e.amount_minor : -e.amount_minor;
-    return h("button", { class: "row", onclick: () => go("edit", { entry: e }) },
+    return h("button", { class: "row", onclick: () => go("edit", { entry: e, back }) },
       h("span", { class: "main" },
         h("div", { class: "title" }, e.category_label),
         h("div", { class: "sub" }, [transfer ? `${e.account_label} → ${e.to_account_label}` : e.account_label, e.note].filter(Boolean).join(" · "))),
@@ -366,12 +367,13 @@
   }
 
   // ---------------------------------------------------------------- Add / Edit
-  async function viewEntry({ entry, draft } = {}) {
+  async function viewEntry({ entry, draft, type, back } = {}) {
     const me = state.me;
     const editing = !!entry;
     const start = entry || draft || {};
+    const returnTo = back || (editing ? "transactions" : "home");
     const form = {
-      type: start.type || "expense",
+      type: start.type || type || "expense",
       category: start.category || null,
       account: start.account || me.default_account || "cash",
       note: start.note || "",
@@ -380,7 +382,7 @@
       repeat: "",
     };
     const lockedType = editing && (entry.type === "transfer" ? "transfer" : "money");  // can't switch in or out of transfer
-    setBackButton(() => go(editing ? "transactions" : "home"));
+    setBackButton(() => go(returnTo));
 
     const amount = h("input", { class: "input amount-input", inputmode: "decimal", autocomplete: "off",
       placeholder: "0.00", "aria-label": "Amount", value: start.amount_minor ? (start.amount_minor / 100).toFixed(2) : "" });
@@ -459,7 +461,7 @@
         haptic(res.warning ? "warning" : "success");
         if (res.warning) toast(warningText(res.warning), "warn");
         else toast(editing ? "Saved" : res.recurring ? `Added, repeats ${res.recurring.frequency === "weekly" ? "every week" : "every month"}` : "Added");
-        go(editing ? "transactions" : "home");
+        go(returnTo);
       } catch (err) {
         haptic("error");
         toast(err.message);
@@ -475,12 +477,12 @@
         await api(`/api/transactions/${entry.id}`, { method: "DELETE" });
         haptic("success");
         toast("Deleted");
-        go("transactions");
+        go(returnTo);
       } catch (err) { toast(err.message); }
     }
 
     const view = h("div", {},
-      h("h1", {}, editing ? "Edit entry" : "New entry"),
+      h("h1", {}, editing ? "Edit entry" : form.type === "income" ? "New income" : form.type === "transfer" ? "New transfer" : "New entry"),
       typeSeg,
       h("div", { class: "field" }, h("label", {}, "Amount", state.currency ? ` (${state.currency})` : ""), amount),
       catField,
@@ -494,6 +496,79 @@
     if (!editing && !draft) setTimeout(() => amount.focus(), 50);
     if (draft) toast("Pick a category to finish.");
     return view;
+  }
+
+  // ---------------------------------------------------------------- Income
+  async function viewIncome() {
+    const data = await api(`/api/income?period=${state.period}`);
+    const addIncome = () => go("add", { type: "income", back: "income" });   // the button on the page
+
+    const seg = h("div", { class: "seg", role: "group", "aria-label": "Period" },
+      ["week", "month"].map((p) => h("button", {
+        "aria-pressed": String(state.period === p),
+        onclick: () => { state.period = p; go("income"); },
+      }, p === "week" ? "This week" : "This month")));
+
+    const last = state.period === "week" ? "last week" : "last month";
+    const pct = data.change_percent;
+    const change = pct === null
+      ? (data.total_minor ? `Nothing logged ${last}` : "")
+      : pct === 0 ? `Same as ${last}` : `${pct > 0 ? "+" : "−"}${Math.abs(pct)}% vs ${last}`;
+    const total = h("div", { class: "stats" },
+      h("div", { class: "stat wide" },
+        h("div", {}, h("div", { class: "label" }, "Total income"),
+          change ? h("div", { class: "note change " + (pct > 0 ? "up" : pct < 0 ? "down" : "") }, change) : null),
+        h("div", { class: "value amount income" }, money(data.total_minor))));
+
+    const maxSource = Math.max(1, ...data.by_source.map((s) => s.total_minor));
+    const sources = data.by_source.length
+      ? h("div", { class: "list" }, data.by_source.map((s) => h("div", { class: "bar-row" },
+          h("div", { class: "bar-head" }, h("span", {}, s.label),
+            h("span", { class: "amount" }, money(s.total_minor), h("span", { class: "hint" }, ` · ${s.percent}%`))),
+          h("div", { class: "track" }, h("div", { class: "fill income", style: `width:${(s.total_minor / maxSource) * 100}%` })))))
+      : h("div", { class: "card empty" }, "No income in this period yet.");
+
+    // Income entries of the period, newest first, by day; more load as you scroll.
+    const list = h("div");
+    const sentinel = h("div", { class: "sentinel" });
+    let cursor = null, loading = false, done = false, lastDay = null, dayList = null, count = 0;
+    async function loadMore() {
+      if (loading || done) return;
+      loading = true;
+      try {
+        const p = new URLSearchParams({ type: "income", from: data.from_date });
+        if (cursor) p.set("cursor", cursor);
+        const page = await api(`/api/transactions?${p}`);
+        for (const e of page.items) {
+          const day = localDay(e.date);
+          if (day !== lastDay) {
+            lastDay = day;
+            dayList = h("div", { class: "list" });
+            list.append(h("div", { class: "day" }, day), dayList);
+          }
+          dayList.append(entryRow(e, "income"));
+          count++;
+        }
+        cursor = page.next_cursor;
+        done = !cursor;
+        if (done && count === 0) list.append(h("div", { class: "card empty" }, "No income entries in this period."));
+      } catch (err) {
+        done = true;
+        list.append(h("div", { class: "card empty" }, err.message));
+      } finally {
+        loading = false;
+      }
+    }
+
+    const root = h("div", {}, h("h1", {}, "Income"), seg, total,
+      h("button", { class: "btn wide add-income", onclick: addIncome }, "+ Add income"),
+      h("h2", {}, "By source"), sources,
+      h("h2", {}, "Entries"), list, sentinel);
+    screen.replaceChildren(root);
+    await loadMore();
+    const io = new IntersectionObserver((items) => { if (items[0].isIntersecting) loadMore(); }, { rootMargin: "400px" });
+    io.observe(sentinel);
+    return null;
   }
 
   // ---------------------------------------------------------------- Budgets
@@ -540,6 +615,7 @@
   // ---------------------------------------------------------------- Accounts
   async function viewAccounts() {
     let data = await api("/api/accounts");
+    setBackButton(() => go("settings"));
     const root = h("div");
     let editing = null;  // key of the account being renamed
 
@@ -585,14 +661,18 @@
       const active = data.accounts.filter((a) => !a.archived);
       const archived = data.accounts.filter((a) => a.archived);
       const newName = h("input", { class: "input", placeholder: "New account, e.g. Savings", maxlength: 30, "aria-label": "New account name" });
-      root.replaceChildren(
+      root.replaceChildren(...[
+        h("button", { class: "link back", onclick: () => go("settings") }, "‹ Settings"),
         h("h1", {}, "Accounts"),
         h("p", { class: "hint" }, "Balance = income minus expenses, plus transfers in, minus transfers out. ⭐ is where new entries go."),
         h("div", { class: "list" }, active.map(accountRow)),
+        active.length > 1 ? h("button", { class: "btn secondary wide", onclick: () => go("add", { type: "transfer", back: "accounts" }) },
+          "🔁 Transfer between accounts") : null,
         h("form", { class: "quick", onsubmit: (e) => { e.preventDefault(); if (newName.value.trim()) change(() => api("/api/accounts", { method: "POST", body: { name: newName.value } }), "Account added"); } },
           newName, h("button", { class: "btn", type: "submit" }, "Add")),
         archived.length ? h("h2", {}, "Archived") : null,
-        archived.length ? h("div", { class: "list" }, archived.map(accountRow)) : null);
+        archived.length ? h("div", { class: "list" }, archived.map(accountRow)) : null,
+      ].filter(Boolean));   // replaceChildren would print a null as the text "null"
     }
     draw();
     return root;
@@ -690,7 +770,14 @@
       } catch (err) { toast(err.message); go("settings"); }
     }
 
+    const accountsRow = h("button", { class: "row", onclick: () => go("accounts") },
+      h("span", { class: "main" }, h("div", { class: "title" }, "🏦 Accounts"),
+        h("div", { class: "sub" }, "Balances, default, add, rename, archive, transfers")),
+      h("span", { class: "hint" }, "›"));
+
     return h("div", {}, h("h1", {}, "Settings"),
+      h("div", { class: "list" }, accountsRow),
+      h("h2", {}, "Preferences"),
       h("div", { class: "list" },
         h("label", { class: "row" }, h("span", { class: "main" }, "Currency"), h("span", { style: "width:120px" }, currency)),
         h("label", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Timezone"),

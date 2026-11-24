@@ -114,8 +114,9 @@ applies here too, by the same rule.
 | History | Every entry grouped by day, loading more as you scroll. Filter by type, category, account and dates, and search notes. Tap an entry to edit or delete it |
 | Add / Edit | Expense, income or transfer; amount, category, account (default preselected), date (today unless changed), note, and Repeat weekly or monthly |
 | Budgets | Each category's limit and this month's progress; set or remove a limit |
-| Accounts | Balances; add, rename, archive or restore; set the default |
-| Settings | Currency, timezone (the phone's own is used on a first visit), both recaps, categories, recurring entries, and Export CSV (sent to your chat) |
+| Income | This week / this month: total income and the change vs the period before ("+12% vs last month"), income by source with amounts and percentages, the period's income entries by day (tap to edit), and **+ Add income** |
+| Settings → Accounts | Balances; add, rename, archive or restore; set the default; 🔁 transfer between accounts |
+| Settings | 🏦 Accounts, currency, timezone (the phone's own is used on a first visit), both recaps, categories, recurring entries, and Export CSV (sent to your chat) |
 
 It follows Telegram's light or dark theme and uses Telegram's main and back
 buttons. Try it locally without Telegram: `python scripts/preview_app.py`.

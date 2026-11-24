@@ -86,3 +86,34 @@ def summary_since(user_id: int, since: datetime, type_: str = "expense", until: 
 def totals_since(user_id: int, since: datetime, until: datetime = None):
     income, expense = totals_minor(user_id, since, until)
     return income / 100, expense / 100
+
+
+@periods.in_user_zone
+def income_overview(user_id: int, period: str = "week", now: datetime = None) -> dict:
+    """The Mini App's Income screen: this week's (or month's) income, the change vs the
+    week (or month) before, and income by source (category), largest first."""
+    if period == "month":
+        start = periods.month_start(now)
+        previous = periods.previous_month(start + timedelta(days=1))[0]
+    else:
+        start = periods.week_start(now)
+        previous = start - timedelta(days=7)
+    total, _ = totals_minor(user_id, start)
+    before, _ = totals_minor(user_id, previous, start)
+    from app.services.categories import names
+    from app.services.prefs import get_prefs
+    labels = names(user_id, "income")
+    sources = by_category_minor(user_id, start, "income")
+    for s in sources:   # hidden categories included: their entries still count
+        s["label"] = labels.get(s["category"]) or catalog.label_for(s["category"], "income")
+        s["percent"] = round(s["total_minor"] / total * 100) if total else 0
+    return {
+        "currency": get_prefs(user_id)["currency"],
+        "period": period,
+        "from": start.isoformat(),
+        "from_date": start.date().isoformat(),
+        "total_minor": total,
+        "previous_total_minor": before,
+        "change_percent": round((total - before) / before * 100) if before else None,
+        "by_source": sources,
+    }
