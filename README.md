@@ -3,11 +3,12 @@
 Track spending and income in Telegram: a **bot** for quick logging, and a
 **Mini App** (a web app that opens inside Telegram) with charts, filters and
 editing. Both share one database and one set of rules, so they never disagree.
-Users must be members of your channel. It works **anywhere in the world**: each
+An optional [channel gate](#the-channel-gate) can ask users to join one of your
+channels each month, after a free first month. It works **anywhere in the world**: each
 user picks their own currency and timezone the first time they start the bot.
 It runs as **one service on Railway**.
 
-- [What it does](#what-it-does) · [The bot](#the-bot) · [The Mini App](#the-mini-app)
+- [What it does](#what-it-does) · [The bot](#the-bot) · [The Mini App](#the-mini-app) · [The channel gate](#the-channel-gate)
 - [Configuration](#configuration) · [Local development](#local-development) · [Deploying](#deploying)
 - [How it works](#how-it-works) · [Backups and restore](#backups-and-restore) · [Tests](#tests)
 
@@ -28,7 +29,7 @@ It runs as **one service on Railway**.
 
 ### First start
 
-After joining the channel, a new user answers two questions before anything else:
+A new user answers two questions before anything else:
 
 1. **Currency:** a button per common currency (USD, EUR, GBP, INR, NGN, KES…), or ✏️ Other to type any 3-letter code.
 2. **Timezone:** 📍 Share my location, pick a region and then a city, or type a city (`London`, `Lagos`) or an
@@ -82,6 +83,8 @@ Admin only (the `ADMIN_CHAT_ID` account; anyone else gets no reply):
 
 - `/recap_now`: a preview of your own weekly recap (`/recap_now month` for the monthly one)
 - `/backup_now`: make a backup and send it to the admin chat
+- `/gate_status`: the channel gate: on or off, each channel and whether the bot is an admin there, and how many
+  users are in their free month or on each channel
 - **Restore:** send a `.db` or `.db.gz` file with the caption /restore (see [Backups and restore](#backups-and-restore))
 
 ### Messages the bot sends by itself
@@ -102,8 +105,8 @@ even if the service restarts halfway.
 ## The Mini App
 
 Opens from the bot's **menu button** or **📱 Open app**. There's no separate
-login: Telegram's signed `initData` proves who you are, and the channel
-requirement applies here too.
+login: Telegram's signed `initData` proves who you are, and the channel gate
+applies here too, by the same rule.
 
 | Screen | What you can do |
 | --- | --- |
@@ -117,6 +120,33 @@ requirement applies here too.
 It follows Telegram's light or dark theme and uses Telegram's main and back
 buttons. Try it locally without Telegram: `python scripts/preview_app.py`.
 
+## The channel gate
+
+Off unless `GATE_ENABLED=true`; while it's off, nobody is checked.
+
+- **Channels:** `GATE_CHANNELS` lists up to 6, comma-separated, each as
+  `@username|join link`, or `-100…numeric id|invite link` for a private channel.
+  The id must be the `@username` or the numeric id, never an invite link. The older
+  `CHANNEL_ID` + `CHANNEL_LINK` (or `REQUIRED_CHANNEL` + `CHANNEL_INVITE_LINK`) still
+  work as a list of one.
+- **Free first month:** each user's first 30 days, counted from their first contact
+  with the bot (or, for users from before the gate, from their next message), need
+  no channel.
+- **Rotation, per user:** days 31–60 → channel 1, days 61–90 → channel 2, and so on,
+  round the list again. A user only needs to be in the current month's channel.
+- **Joined means** `creator`, `administrator` or `member`, or `restricted` while
+  still a member.
+- **When it's checked:** only when a user starts something (a menu screen, a
+  command, the start of an entry, a quick entry, a Mini App screen), never in the
+  middle of an entry. A "member" answer is cached for 15 minutes.
+- **The join screen** names this month's channel, explains it changes monthly, and
+  has 📢 Join and ✅ I've joined (which checks again at once).
+- **The admin** (`ADMIN_CHAT_ID`) is never checked.
+- **The bot must be an administrator of every channel** (no special rights needed):
+  Telegram only shows a channel's members to its admins. At startup, with the gate
+  on, the admin gets an alert for any channel where it isn't. Until it's fixed,
+  that channel's check lets users through rather than locking everyone out.
+
 ## Configuration
 
 Set these on Railway (Variables) or, locally, in a `.env` file (see
@@ -125,8 +155,10 @@ Set these on Railway (Variables) or, locally, in a `.env` file (see
 | Variable | Required | Meaning |
 | --- | --- | --- |
 | `BOT_TOKEN` | yes | Token from @BotFather |
-| `CHANNEL_ID` | yes | `@username` or numeric id of the channel users must join (old name `REQUIRED_CHANNEL` still works). **Add the bot as an admin of the channel**, or every check fails |
-| `CHANNEL_LINK` | yes | The join link shown to non-members (old name `CHANNEL_INVITE_LINK` still works) |
+| `GATE_ENABLED` | no | `true` turns on the [channel gate](#the-channel-gate). Default `false`: no channel checks |
+| `GATE_CHANNELS` | with the gate | Up to 6 channels: `@username\|https://t.me/username,-1001234567890\|https://t.me/+invite`. **Add the bot as an admin of each** |
+| `CHANNEL_ID` | no | One channel instead of `GATE_CHANNELS`: `@username` or numeric `-100…` id (old name `REQUIRED_CHANNEL` still works) |
+| `CHANNEL_LINK` | no | Its join link (old name `CHANNEL_INVITE_LINK` still works) |
 | `WEBHOOK_SECRET` | in production | 32+ random characters; Telegram sends it with every update |
 | `PUBLIC_URL` | for the Mini App | Base https URL. Default: `https://$RAILWAY_PUBLIC_DOMAIN` |
 | `ADMIN_CHAT_ID` | no | Your Telegram id: backups, error alerts, admin commands |
@@ -140,7 +172,7 @@ Set these on Railway (Variables) or, locally, in a `.env` file (see
 python -m venv venv
 source venv/bin/activate             # Windows: venv\Scripts\activate
 pip install -r requirements-dev.txt
-cp .env.example .env                 # fill in BOT_TOKEN, CHANNEL_ID, CHANNEL_LINK
+cp .env.example .env                 # fill in BOT_TOKEN (the channel gate is off by default)
 echo USE_POLLING=true >> .env        # no webhook or public URL needed locally
 python -m app.main                   # the bot, plus the API and Mini App on http://localhost:8000
 pytest                               # the tests
@@ -204,7 +236,7 @@ tests/            pytest, driving the real handlers against a fake Telegram
   shared between replicas. It's comfortable to about 10,000 active users; past
   that, move to Postgres.
 - **At about 1,000 users:** membership checks are cached for 15 minutes (only a
-  "member" answer is cached, and ✅ I've subscribed always checks live). Only
+  "member" answer is cached, and ✅ I've joined always checks live). Only
   sending calls are rate-limited, and the recap sends at most 25 messages a
   second. Users who block the bot are skipped until they write again. SQLite
   runs in WAL mode with a 5-second busy timeout, and database work never blocks

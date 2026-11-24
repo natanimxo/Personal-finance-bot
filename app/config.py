@@ -56,6 +56,11 @@ BOT_TOKEN = _env("BOT_TOKEN")
 # Railway service keeps working without renaming its variables.
 REQUIRED_CHANNEL = _env("CHANNEL_ID", "REQUIRED_CHANNEL")
 CHANNEL_INVITE_LINK = _env("CHANNEL_LINK", "CHANNEL_INVITE_LINK")
+# The channel gate (app/services/gate.py). Off unless GATE_ENABLED is true.
+GATE_ENABLED = _env("GATE_ENABLED", default="false").lower() in ("1", "true", "yes", "on")
+# Up to 6 "@username|https://t.me/username" (or "-100...|invite link"), comma-separated.
+# Empty: the one channel above.
+GATE_CHANNELS = _env("GATE_CHANNELS")
 
 DB_PATH = _resolve_db_path()
 DB_PATH_SOURCE = (

@@ -351,21 +351,32 @@ EN.update({
 # --- the channel gate ----------------------------------------------------------------------
 EN.update({
     "gate.text": (
-        "🔒 <b>Welcome to your expense tracker!</b>\n\n"
-        "Here's what I do:\n"
-        "• Log spending in 3 taps\n"
-        "• Warn you the moment you're near a budget\n"
-        "• Send you a spending recap every Monday\n\n"
-        "This bot is free — you just need to join my channel first:\n"
-        "{link}\n\n"
-        "Then tap ✅ below."
+        "🔒 <b>This month's channel: {name}</b>\n\n"
+        "Your free first month is over. The bot stays free: each month you just need to "
+        "be in that month's channel. It changes every month, and you only need the current one.\n\n"
+        "Join {link}, then tap ✅ I've joined."
     ),
-    "gate.join": "📢 Join the channel",
-    "gate.subscribed": "✅ I've subscribed",
+    "gate.join": "📢 Join {name}",
+    "gate.subscribed": "✅ I've joined",
     "gate.youre_in": "You're in! 🎉",
-    "gate.confirmed": "✅ Subscription confirmed! Here's your menu 👇",
+    "gate.confirmed": "✅ You're in this month's channel. Here's your menu 👇",
     "gate.get_started": "Tap a button to get started.",
-    "gate.still_not": "Still not subscribed — join the channel first.",
+    "gate.still_not": "Not in this month's channel yet. Join it first, then tap ✅ again.",
+    "gate.alert_not_admin": (
+        "⚠️ <b>Channel gate</b>: the bot isn't an administrator of {channels}, so it can't see who "
+        "joined. Users are let through until you add the bot as an admin there."
+    ),
+    "gate.status_title": "🔐 <b>Channel gate</b>: {state}",
+    "gate.status_on": "on",
+    "gate.status_off": "off (GATE_ENABLED is not true; nobody is checked)",
+    "gate.status_channel": "{number}. {name} ({chat_id}): bot admin {admin}, {users} user(s) on it now",
+    "gate.status_admin_yes": "✅",
+    "gate.status_admin_no": "❌",
+    "gate.status_admin_unknown": "❓",
+    "gate.status_none": "No channels set (GATE_CHANNELS, or CHANNEL_ID with CHANNEL_LINK).",
+    "gate.status_free": "In their free first month: {users} user(s)",
+    "gate.status_rules": "Free for {free} days from first contact, then one channel per {period} days, in order.",
+    "gate.status_problem": "⚠️ {problem}",
 })
 
 # --- recaps --------------------------------------------------------------------------------

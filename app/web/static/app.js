@@ -185,12 +185,13 @@
     setMainButton(null);
     if (err instanceof ApiError && err.status === 403 && err.body && err.body.detail && err.body.detail.error === "not_subscribed") {
       const link = err.body.detail.join_link;
+      const name = err.body.detail.channel || "the channel";
       screen.replaceChildren(h("div", { class: "state" },
         h("div", { class: "big" }, "🔒"),
-        h("h1", {}, "Join the channel first"),
-        h("p", {}, "This tracker is free. You just need to join the channel to use it."),
-        link ? h("button", { class: "btn", onclick: () => (insideTelegram ? tg.openTelegramLink(link) : window.open(link)) }, "📢 Join the channel") : null,
-        h("p", {}, h("button", { class: "btn secondary", onclick: () => boot() }, "I've joined"))));
+        h("h1", {}, `This month's channel: ${name}`),
+        h("p", {}, "Your free first month is over. The tracker stays free: each month, just be in that month's channel. It changes every month, and you only need the current one."),
+        link ? h("button", { class: "btn", onclick: () => (insideTelegram ? tg.openTelegramLink(link) : window.open(link)) }, `📢 Join ${name}`) : null,
+        h("p", {}, h("button", { class: "btn secondary", onclick: () => boot() }, "✅ I've joined"))));
       return;
     }
     if (err instanceof ApiError && err.status === 401) {

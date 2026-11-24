@@ -61,6 +61,11 @@ async def start_bot(application, mode: str):
         await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text=t("menu.button"), web_app=WebAppInfo(url=url)))
     await application.start()
     logger.info("Bot started (%s). Mini App: %s", mode, url or "not available without an https PUBLIC_URL")
+    from app.bot.membership import startup_check
+    try:
+        await startup_check(bot)   # with the gate on: alert the admin about channels the bot isn't admin of
+    except Exception as e:
+        logger.warning("Channel gate startup check failed: %s", e)
 
 
 async def stop_bot(application, mode: str):

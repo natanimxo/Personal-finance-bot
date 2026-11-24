@@ -33,3 +33,17 @@ def reset_process_caches():
     membership._known_active.clear()
     throttle.last, throttle.suppressed = None, 0
     yield
+
+
+@pytest.fixture(autouse=True)
+def gate_on_without_free_month(monkeypatch):
+    """Most tests are about the gate's checks, so it is on and the free month is off;
+    tests/test_gate.py covers the real defaults (off, 30 free days, rotation)."""
+    from app.services import gate
+
+    monkeypatch.setattr(config, "GATE_ENABLED", True)
+    monkeypatch.setattr(config, "GATE_CHANNELS", "")
+    monkeypatch.setattr(gate, "FREE_DAYS", 0)
+    from app.bot import membership
+    membership._not_admin_alerted.clear()
+    membership._titles.clear()

@@ -1,13 +1,18 @@
+from datetime import datetime, timezone
+
 from app.db import get_conn
 
 
 def register_user(user_id: int):
-    """Adds the user, or marks them active again if they had blocked the bot."""
+    """Adds the user (noting their first contact, which starts the free month), or
+    marks them active again if they had blocked the bot."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO users (user_id) VALUES (?) "
-            "ON CONFLICT(user_id) DO UPDATE SET active = 1 WHERE active = 0",
-            (user_id,),
+            "INSERT INTO users (user_id, first_start_at) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET active = 1, first_start_at = COALESCE(first_start_at, ?) "
+            "WHERE active = 0 OR first_start_at IS NULL",
+            (user_id, now, now),
         )
 
 

@@ -38,8 +38,15 @@ async def current_user(request: Request, authorization: str = Header(default="")
         raise HTTPException(401, detail={"error": t("api.session_expired"), "reason": str(e)})
     user_id = int(tg_user["id"])
     bot = request.app.state.application.bot
+    await touch_user(user_id)  # a first visit starts the free month
+    # The same rule as the bot, checked once per request (an app screen = starting an action).
     if not await is_subscribed(SimpleNamespace(bot=bot), user_id):
-        raise HTTPException(403, detail={"error": "not_subscribed", "join_link": config.CHANNEL_INVITE_LINK})
+        from app.bot.membership import channel_name
+        from app.services import gate
+
+        channel = await db_call(gate.required_channel, user_id)
+        raise HTTPException(403, detail={"error": "not_subscribed", "join_link": channel.link if channel else "",
+                                         "channel": channel_name(channel) if channel else ""})
     await touch_user(user_id)
     # Every date in this request (weeks, months, "today") is in the user's own timezone.
     periods.set_zone(await db_call(periods.user_zone_name, user_id), user_id)
