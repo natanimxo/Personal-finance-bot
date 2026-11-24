@@ -33,6 +33,27 @@ Everything works through buttons — there are no commands to type besides
 - Errors are logged in full, and the admin gets a short alert (at most one a minute).
 - `GET /healthz` on `$PORT` answers 200 when the database responds, 503 when it doesn't.
 
+## 📱 The Mini App
+A web app that opens inside Telegram from the bot's **menu button** or the
+**📱 Open app** button in the main menu. It does everything the bot does, plus:
+- **Home:** this week or this month, with income, expenses, net, savings rate,
+  spending by category, budget bars and account balances.
+- **History:** every entry grouped by day, with infinite scroll, filters (type,
+  category, account, dates) and note search. Tap an entry to edit or delete it.
+- **Add / Edit:** amount, expense or income, category, account (your default
+  is preselected) and note.
+- **Budgets, Accounts and Settings:** set or remove limits, set the default
+  account, and change your currency and the weekly recap switch.
+
+There's no separate login: the app proves who you are with Telegram's signed
+`initData`, and the channel requirement applies there too. The bot and the app
+share one database and one set of rules (`app/services/`), so an entry added
+in either shows in both, and a budget warning from the app also arrives as a
+bot message.
+
+Try it locally without Telegram: `python scripts/preview_app.py`, then open the
+printed URL. It uses demo data and a fake Telegram.
+
 ## 1. Create the bot
 1. Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, follow the prompts.
 2. Copy the token it gives you — that's `BOT_TOKEN`.
@@ -53,6 +74,9 @@ Everything works through buttons — there are no commands to type besides
 | `CHANNEL_LINK` | yes | Link shown on the "join the channel" screen (old name `CHANNEL_INVITE_LINK` still works) |
 | `APP_TIMEZONE` | no | Timezone for weeks, months and the recap (default `Africa/Nairobi`) |
 | `ADMIN_CHAT_ID` | no | Telegram id allowed to use `/recap_now` |
+| `PUBLIC_URL` | for the Mini App | Base https URL. Default: `https://$RAILWAY_PUBLIC_DOMAIN` |
+| `WEBHOOK_SECRET` | for webhook mode | 32+ random characters; Telegram sends it with every update |
+| `USE_POLLING` | no | `true` for local development (no webhook) |
 | `DB_PATH` | no | Where the SQLite database lives. Default: `$RAILWAY_VOLUME_MOUNT_PATH/expenses.db`, else an existing `./finance_bot.db`, else `./data/expenses.db` |
 
 `.env.example` lists every variable, including the ones later phases use.
@@ -79,6 +103,20 @@ pytest                        # run the tests
    New Volume**, mount it at `/app/data`, and add the variable
    `DB_PATH=/app/data/finance_bot.db`. No code change is needed.
 5. Deploy. Check **Deployments → Logs** for `Bot starting...` to confirm it's live.
+
+## How it runs
+One process: uvicorn serves FastAPI (`app/web/server.py`) on `$PORT` with the
+JSON API at `/api/*`, the Telegram webhook at `/telegram/webhook`, `/healthz`,
+and the Mini App's files at `/`. The bot runs in the same event loop.
+- **Webhook mode** (production) needs `WEBHOOK_SECRET` and an https `PUBLIC_URL`.
+  At startup the app registers the webhook and the menu button; doing that
+  again on every start is harmless.
+- **Polling mode**: with `USE_POLLING=true`, or automatically (with a warning
+  in the logs) while `WEBHOOK_SECRET` or a public https URL is missing. An
+  existing deployment therefore keeps working before those are set. The Mini
+  App needs the https URL.
+- Amounts are stored as whole cents (`amount_minor`). The old `amount` column
+  is still written, and every start logs whether the two agree.
 
 ## Backups and restore
 - Every day at **03:00** (`APP_TIMEZONE`) the bot writes

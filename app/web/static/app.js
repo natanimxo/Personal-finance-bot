@@ -1,0 +1,526 @@
+/* Expense Tracker Mini App. Plain JS, no build step.
+   Every request carries Telegram's signed initData; the server derives the user from it. */
+(() => {
+  "use strict";
+
+  const tg = window.Telegram && window.Telegram.WebApp;
+  // In Telegram, initData comes from telegram-web-app.js. The local preview
+  // (scripts/preview_app.py) passes it in the URL hash the same way Telegram does.
+  const initData = (tg && tg.initData) || new URLSearchParams(location.hash.slice(1)).get("tgWebAppData") || "";
+  const insideTelegram = !!(tg && tg.initData && tg.platform && tg.platform !== "unknown");
+  const screen = document.getElementById("screen");
+  const tabs = document.getElementById("tabs");
+  const fallbackMain = document.getElementById("fallback-main");
+  const toastEl = document.getElementById("toast");
+
+  if (insideTelegram) document.documentElement.classList.add("tg");
+
+  const state = { me: null, period: "week", route: "home", currency: "KES" };
+
+  // ---------------------------------------------------------------- helpers
+  function h(tag, attrs = {}, ...children) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v === null || v === undefined || v === false) continue;
+      if (k === "class") el.className = v;
+      else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+      else if (k === "text") el.textContent = v;
+      else el.setAttribute(k, v === true ? "" : v);
+    }
+    for (const c of children.flat()) {
+      if (c === null || c === undefined || c === false) continue;
+      el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    }
+    return el;
+  }
+
+  function money(minor, { sign = false } = {}) {
+    const n = Math.abs(minor) / 100;
+    const text = n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const prefix = sign ? (minor > 0 ? "+" : minor < 0 ? "−" : "") : (minor < 0 ? "−" : "");
+    return `${prefix}${state.currency} ${text}`;
+  }
+
+  function haptic(kind) {
+    try { tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred(kind); } catch (_) {}
+  }
+
+  let toastTimer;
+  function toast(text, kind = "") {
+    toastEl.textContent = text;
+    toastEl.className = "toast " + kind;
+    toastEl.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toastEl.hidden = true), kind === "warn" ? 5000 : 2500);
+  }
+
+  function confirmDialog(text) {
+    return new Promise((resolve) => {
+      if (insideTelegram && tg.showConfirm) tg.showConfirm(text, resolve);
+      else resolve(window.confirm(text));
+    });
+  }
+
+  function localDay(iso) {
+    return new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  }
+
+  function categoryLabel(type, key) {
+    const list = (state.me && state.me.categories[type]) || [];
+    const found = list.find((c) => c.key === key);
+    return found ? found.label : key;
+  }
+
+  function warningText(w) {
+    if (!w) return "";
+    const used = `${money(w.spent_minor)} / ${money(w.limit_minor)}`;
+    return w.level === "over" ? `Over budget on ${w.label}: ${used}` : `${w.percent}% of your ${w.label} budget used (${used})`;
+  }
+
+  // ---------------------------------------------------------------- API
+  class ApiError extends Error {
+    constructor(status, body) {
+      super((body && (body.error || (body.detail && body.detail.error))) || `Request failed (${status})`);
+      this.status = status;
+      this.body = body;
+    }
+  }
+
+  async function api(path, { method = "GET", body } = {}) {
+    const res = await fetch(path, {
+      method,
+      headers: { Authorization: "tma " + initData, ...(body ? { "Content-Type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    let data = null;
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) throw new ApiError(res.status, data);
+    return data;
+  }
+
+  // ---------------------------------------------------------------- Main / Back buttons
+  let mainHandler = null;
+  function setMainButton(text, handler) {
+    mainHandler = handler;
+    if (insideTelegram) {
+      tg.MainButton.offClick(onMain);
+      if (!text) return tg.MainButton.hide();
+      tg.MainButton.setText(text);
+      tg.MainButton.onClick(onMain);
+      tg.MainButton.show();
+    } else {
+      fallbackMain.hidden = !text;
+      fallbackMain.textContent = text || "";
+      document.body.classList.toggle("has-fallback", !!text);
+    }
+  }
+  function onMain() { if (mainHandler) mainHandler(); }
+  fallbackMain.addEventListener("click", onMain);
+
+  function setMainBusy(busy) {
+    if (insideTelegram) busy ? tg.MainButton.showProgress(false) : tg.MainButton.hideProgress();
+    else fallbackMain.disabled = busy;
+  }
+
+  let backHandler = null;
+  function setBackButton(handler) {
+    backHandler = handler;
+    if (!insideTelegram) return;
+    handler ? tg.BackButton.show() : tg.BackButton.hide();
+  }
+  if (tg && tg.BackButton) tg.BackButton.onClick(() => backHandler && backHandler());
+
+  // ---------------------------------------------------------------- routing
+  function go(route, params = {}) {
+    state.route = route;
+    const showTabs = !["add", "edit"].includes(route);
+    tabs.hidden = !showTabs;
+    document.body.classList.toggle("no-tabs", !showTabs);
+    tabs.querySelectorAll("button").forEach((b) =>
+      b.setAttribute("aria-current", b.dataset.route === route ? "page" : "false"));
+    setMainButton(null);
+    setBackButton(null);
+    window.scrollTo(0, 0);
+    const view = { home: viewHome, transactions: viewTransactions, add: viewEntry, edit: viewEntry,
+                   budgets: viewBudgets, accounts: viewAccounts, settings: viewSettings }[route];
+    render(view, params);
+  }
+  tabs.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-route]");
+    if (b) go(b.dataset.route);
+  });
+
+  async function render(view, params) {
+    screen.replaceChildren(h("div", { class: "spinner", "aria-label": "Loading" }));
+    try {
+      const content = await view(params);
+      if (content) screen.replaceChildren(content);
+    } catch (err) {
+      showError(err);
+    }
+  }
+
+  function showError(err) {
+    console.error(err);
+    tabs.hidden = true;
+    setMainButton(null);
+    if (err instanceof ApiError && err.status === 403 && err.body && err.body.detail && err.body.detail.error === "not_subscribed") {
+      const link = err.body.detail.join_link;
+      screen.replaceChildren(h("div", { class: "state" },
+        h("div", { class: "big" }, "🔒"),
+        h("h1", {}, "Join the channel first"),
+        h("p", {}, "This tracker is free. You just need to join the channel to use it."),
+        link ? h("button", { class: "btn", onclick: () => (insideTelegram ? tg.openTelegramLink(link) : window.open(link)) }, "📢 Join the channel") : null,
+        h("p", {}, h("button", { class: "btn secondary", onclick: () => boot() }, "I've joined"))));
+      return;
+    }
+    if (err instanceof ApiError && err.status === 401) {
+      screen.replaceChildren(h("div", { class: "state" },
+        h("div", { class: "big" }, "📱"),
+        h("h1", {}, "Open this from the bot"),
+        h("p", {}, insideTelegram ? "Your session expired. Close and reopen the app." : "This app works inside Telegram: open it from the bot's menu button.")));
+      return;
+    }
+    screen.replaceChildren(h("div", { class: "state" },
+      h("div", { class: "big" }, "⚠️"),
+      h("h1", {}, "Something went wrong"),
+      h("p", {}, err.message || "Please try again."),
+      h("button", { class: "btn", onclick: () => go(state.route) }, "Try again")));
+  }
+
+  // ---------------------------------------------------------------- Home
+  async function viewHome() {
+    const data = await api(`/api/summary?period=${state.period}`);
+    setMainButton("Add entry", () => go("add"));
+
+    const seg = h("div", { class: "seg", role: "group", "aria-label": "Period" },
+      ["week", "month"].map((p) => h("button", {
+        "aria-pressed": String(state.period === p),
+        onclick: () => { state.period = p; go("home"); },
+      }, p === "week" ? "This week" : "This month")));
+
+    const net = data.net_minor;
+    const stats = h("div", { class: "stats" },
+      h("div", { class: "stat" }, h("div", { class: "label" }, "Income"), h("div", { class: "value amount income" }, money(data.income_minor))),
+      h("div", { class: "stat" }, h("div", { class: "label" }, "Expenses"), h("div", { class: "value" }, money(data.expense_minor))),
+      h("div", { class: "stat wide" },
+        h("div", {}, h("div", { class: "label" }, "Net"),
+          data.savings_rate !== null ? h("div", { class: "note" }, `Savings rate ${Math.round(data.savings_rate)}%`) : null),
+        h("div", { class: "value amount " + (net < 0 ? "neg" : "income") }, money(net, { sign: true }))));
+
+    const maxCat = Math.max(1, ...data.by_category.map((c) => c.total_minor));
+    const spending = data.by_category.length
+      ? h("div", { class: "list" }, data.by_category.map((c) => h("div", { class: "bar-row" },
+          h("div", { class: "bar-head" }, h("span", {}, c.label), h("span", { class: "amount" }, money(c.total_minor))),
+          h("div", { class: "track" }, h("div", { class: "fill", style: `width:${(c.total_minor / maxCat) * 100}%` })))))
+      : h("div", { class: "card empty" }, "No spending in this period yet.");
+
+    const withLimits = data.budgets.filter((b) => b.limit_minor);
+    const budgetList = withLimits.length
+      ? h("div", { class: "list" }, withLimits.map(budgetBar))
+      : h("button", { class: "card row", onclick: () => go("budgets") },
+          h("span", { class: "main" }, "Set a monthly budget"), h("span", { class: "hint" }, "›"));
+
+    const accounts = h("div", { class: "list" }, data.accounts.map((a) => h("div", { class: "row" },
+      h("span", { class: "main title" }, a.label, a.is_default ? " ⭐" : ""),
+      h("span", { class: "amount " + (a.balance_minor < 0 ? "neg" : "") }, money(a.balance_minor)))));
+
+    return h("div", {}, seg, stats,
+      h("h2", {}, "Spending by category"), spending,
+      h("h2", {}, "Budgets this month"), budgetList,
+      h("h2", {}, "Account balances"), accounts);
+  }
+
+  function budgetBar(b) {
+    const pct = b.limit_minor ? (b.spent_minor / b.limit_minor) * 100 : 0;
+    const cls = pct > 100 ? "over" : pct >= 80 ? "warn" : "";
+    return h("div", { class: "bar-row" },
+      h("div", { class: "bar-head" }, h("span", {}, b.label),
+        h("span", { class: "hint" }, `${money(b.spent_minor)} of ${money(b.limit_minor)}`)),
+      h("div", { class: "track", role: "progressbar", "aria-valuenow": Math.round(pct), "aria-valuemin": 0, "aria-valuemax": 100 },
+        h("div", { class: "fill " + cls, style: `width:${Math.min(pct, 100)}%` })));
+  }
+
+  // ---------------------------------------------------------------- Transactions
+  const filters = { type: "", category: "", account: "", from: "", to: "", q: "" };
+
+  async function viewTransactions() {
+    setMainButton("Add entry", () => go("add"));
+    const me = state.me;
+    const list = h("div");
+    const sentinel = h("div", { class: "sentinel" });
+    let cursor = null, loading = false, done = false, lastDay = null, dayList = null, total = 0;
+
+    const query = () => {
+      const p = new URLSearchParams();
+      for (const [k, v] of Object.entries(filters)) if (v) p.set(k, v);
+      if (cursor) p.set("cursor", cursor);
+      return p.toString();
+    };
+
+    async function loadMore() {
+      if (loading || done) return;
+      loading = true;
+      try {
+        const data = await api(`/api/transactions?${query()}`);
+        for (const e of data.items) {
+          const day = localDay(e.created_at);
+          if (day !== lastDay) {
+            lastDay = day;
+            dayList = h("div", { class: "list" });
+            list.append(h("div", { class: "day" }, day), dayList);
+          }
+          dayList.append(entryRow(e));
+          total++;
+        }
+        cursor = data.next_cursor;
+        done = !cursor;
+        if (done && total === 0) list.append(h("div", { class: "card empty" }, anyFilter() ? "Nothing matches these filters." : "No transactions yet."));
+      } catch (err) {
+        done = true;
+        list.append(h("div", { class: "card empty" }, err.message));
+      } finally {
+        loading = false;
+      }
+    }
+
+    const typeSeg = h("div", { class: "seg", role: "group", "aria-label": "Type" },
+      [["", "All"], ["expense", "Expenses"], ["income", "Income"]].map(([v, label]) => h("button", {
+        "aria-pressed": String(filters.type === v),
+        onclick: () => { filters.type = v; if (v && filters.category && !me.categories[v].some((c) => c.key === filters.category)) filters.category = ""; go("transactions"); },
+      }, label)));
+
+    let timer;
+    const search = h("input", { class: "input wide", type: "search", placeholder: "Search notes", value: filters.q,
+      "aria-label": "Search notes",
+      oninput: (e) => { clearTimeout(timer); timer = setTimeout(() => { filters.q = e.target.value.trim(); go("transactions"); }, 400); } });
+
+    const cats = filters.type ? me.categories[filters.type] : [...me.categories.expense, ...me.categories.income.filter((c) => c.key !== "other")];
+    const select = (name, label, options) => h("select", { class: "input", "aria-label": label,
+      onchange: (e) => { filters[name] = e.target.value; go("transactions"); } },
+      h("option", { value: "" }, label), options.map((o) => h("option", { value: o.key, selected: filters[name] === o.key }, o.label)));
+    const date = (name, label) => h("input", { class: "input", type: "date", value: filters[name], "aria-label": label, title: label,
+      onchange: (e) => { filters[name] = e.target.value; go("transactions"); } });
+
+    const filterBox = h("div", { class: "filters" },
+      search, select("category", "All categories", cats), select("account", "All accounts", me.accounts),
+      date("from", "From date"), date("to", "To date"),
+      anyFilter() ? h("button", { class: "btn secondary wide", onclick: () => { Object.keys(filters).forEach((k) => (filters[k] = "")); go("transactions"); } }, "Clear filters") : null);
+
+    const root = h("div", {}, h("h1", {}, "History"), typeSeg, filterBox, list, sentinel);
+    screen.replaceChildren(root);
+    await loadMore();
+    const io = new IntersectionObserver((items) => { if (items[0].isIntersecting) loadMore(); }, { rootMargin: "400px" });
+    io.observe(sentinel);
+    return null;
+  }
+
+  function anyFilter() { return Object.values(filters).some(Boolean); }
+
+  function entryRow(e) {
+    const signed = e.type === "income" ? e.amount_minor : -e.amount_minor;
+    return h("button", { class: "row", onclick: () => go("edit", { entry: e }) },
+      h("span", { class: "main" },
+        h("div", { class: "title" }, e.category_label),
+        h("div", { class: "sub" }, [e.account_label, e.note].filter(Boolean).join(" · "))),
+      h("span", { class: "amount " + (e.type === "income" ? "income" : "") }, money(signed, { sign: true })));
+  }
+
+  // ---------------------------------------------------------------- Add / Edit
+  async function viewEntry({ entry } = {}) {
+    const me = state.me;
+    const editing = !!entry;
+    const form = {
+      type: editing ? entry.type : "expense",
+      category: editing ? entry.category : null,
+      account: editing ? entry.account : (me.default_account || "cash"),
+      note: editing ? entry.note : "",
+    };
+    setBackButton(() => go(editing ? "transactions" : "home"));
+
+    const amount = h("input", { class: "input amount-input", inputmode: "decimal", autocomplete: "off",
+      placeholder: "0.00", "aria-label": "Amount", value: editing ? (entry.amount_minor / 100).toFixed(2) : "" });
+    const catBox = h("div", { class: "chips", role: "group", "aria-label": "Category" });
+    const drawCats = () => catBox.replaceChildren(...me.categories[form.type].map((c) => h("button", {
+      class: "chip", "aria-pressed": String(form.category === c.key),
+      onclick: () => { form.category = c.key; drawCats(); },
+    }, c.label)));
+
+    const typeSeg = h("div", { class: "seg", role: "group", "aria-label": "Type" });
+    const drawType = () => typeSeg.replaceChildren(...[["expense", "Expense"], ["income", "Income"]].map(([v, label]) => h("button", {
+      "aria-pressed": String(form.type === v),
+      onclick: () => { if (form.type !== v) { form.type = v; form.category = null; drawType(); drawCats(); } },
+    }, label)));
+
+    const accBox = h("div", { class: "chips", role: "group", "aria-label": "Account" });
+    const drawAccounts = () => accBox.replaceChildren(...me.accounts.map((a) => h("button", {
+      class: "chip", "aria-pressed": String(form.account === a.account),
+      onclick: () => { form.account = a.account; drawAccounts(); },
+    }, a.label, a.is_default ? " ⭐" : "")));
+
+    const counter = h("div", { class: "counter" });
+    const note = h("textarea", { class: "input", rows: 2, maxlength: 200, placeholder: "Optional", "aria-label": "Note",
+      oninput: () => (counter.textContent = `${note.value.length} / 200`) });
+    note.value = form.note;
+    counter.textContent = `${note.value.length} / 200`;
+
+    drawType(); drawCats(); drawAccounts();
+
+    async function save() {
+      if (!amount.value.trim()) { toast("Type an amount first."); amount.focus(); return; }
+      if (!form.category) { toast("Pick a category."); return; }
+      const body = { amount: amount.value.trim(), type: form.type, category: form.category, account: form.account, note: note.value };
+      setMainBusy(true);
+      try {
+        const res = editing
+          ? await api(`/api/transactions/${entry.id}`, { method: "PATCH", body })
+          : await api("/api/transactions", { method: "POST", body });
+        haptic(res.warning ? "warning" : "success");
+        if (res.warning) toast(warningText(res.warning), "warn");
+        else toast(editing ? "Saved" : "Added");
+        go(editing ? "transactions" : "home");
+      } catch (err) {
+        haptic("error");
+        toast(err.message);
+      } finally {
+        setMainBusy(false);
+      }
+    }
+    setMainButton(editing ? "Save changes" : "Save", save);
+
+    async function remove() {
+      if (!(await confirmDialog("Delete this entry? This can't be undone."))) return;
+      try {
+        await api(`/api/transactions/${entry.id}`, { method: "DELETE" });
+        haptic("success");
+        toast("Deleted");
+        go("transactions");
+      } catch (err) { toast(err.message); }
+    }
+
+    const view = h("div", {},
+      h("h1", {}, editing ? "Edit entry" : "New entry"),
+      typeSeg,
+      h("div", { class: "field" }, h("label", {}, "Amount", ` (${state.currency})`), amount),
+      h("div", { class: "field" }, h("label", {}, "Category"), catBox),
+      h("div", { class: "field" }, h("label", {}, "Account"), accBox),
+      h("div", { class: "field" }, h("label", {}, "Note"), note, counter),
+      editing ? h("p", { class: "hint" }, `Logged ${new Date(entry.created_at).toLocaleString()}`) : null,
+      editing ? h("button", { class: "btn danger", onclick: remove }, "Delete entry") : null);
+    if (!editing) setTimeout(() => amount.focus(), 50);
+    return view;
+  }
+
+  // ---------------------------------------------------------------- Budgets
+  async function viewBudgets() {
+    const data = await api("/api/budgets");
+    const list = h("div", { class: "list" });
+    let open = null;
+
+    function draw() {
+      list.replaceChildren(...data.budgets.map((b) => {
+        const head = h("button", { class: "row", onclick: () => { open = open === b.category ? null : b.category; draw(); } },
+          h("span", { class: "main" },
+            h("div", { class: "title" }, b.label),
+            h("div", { class: "sub" }, b.limit_minor ? `${money(b.spent_minor)} of ${money(b.limit_minor)} this month` : `No limit · ${money(b.spent_minor)} spent this month`)),
+          h("span", { class: "hint" }, open === b.category ? "▴" : "▾"));
+        const parts = [head];
+        if (b.limit_minor) parts.push(h("div", { style: "padding:0 16px 12px" }, budgetBar(b).lastChild));
+        if (open === b.category) {
+          const input = h("input", { class: "input", inputmode: "decimal", placeholder: "Monthly limit",
+            value: b.limit_minor ? (b.limit_minor / 100).toFixed(2) : "", "aria-label": `Monthly limit for ${b.label}` });
+          const save = async (limit) => {
+            try {
+              const res = await api("/api/budgets", { method: "PUT", body: { category: b.category, limit } });
+              data.budgets = res.budgets;
+              open = null;
+              haptic("success");
+              toast(limit ? "Budget saved" : "Budget removed");
+              draw();
+            } catch (err) { toast(err.message); }
+          };
+          parts.push(h("div", { class: "inline-edit" }, input,
+            h("button", { class: "btn", onclick: () => save(input.value.trim() || null) }, "Save"),
+            b.limit_minor ? h("button", { class: "btn secondary", onclick: () => save(null) }, "Remove") : null));
+          setTimeout(() => input.focus(), 30);
+        }
+        return h("div", {}, ...parts);
+      }));
+    }
+    draw();
+    return h("div", {}, h("h1", {}, "Budgets"),
+      h("p", { class: "hint" }, "Monthly limits per category. You're warned at 80% and when you go over."), list);
+  }
+
+  // ---------------------------------------------------------------- Accounts
+  async function viewAccounts() {
+    const data = await api("/api/accounts");
+    const list = h("div", { class: "list" });
+    function draw() {
+      list.replaceChildren(...data.accounts.map((a) => h("div", { class: "row" },
+        h("span", { class: "main" },
+          h("div", { class: "title" }, a.label, a.is_default ? " ⭐" : ""),
+          h("div", { class: "sub" }, a.is_default ? "Default for new entries" : "")),
+        h("span", { class: "amount " + (a.balance_minor < 0 ? "neg" : "") }, money(a.balance_minor)),
+        a.is_default ? null : h("button", { class: "btn secondary", "aria-label": `Make ${a.label} the default`, onclick: async () => {
+          try {
+            const res = await api("/api/accounts", { method: "PUT", body: { default_account: a.account } });
+            data.accounts = res.accounts;
+            state.me.accounts = res.accounts;
+            state.me.default_account = a.account;
+            haptic("success");
+            draw();
+          } catch (err) { toast(err.message); }
+        } }, "Make default"))));
+    }
+    draw();
+    return h("div", {}, h("h1", {}, "Accounts"),
+      h("p", { class: "hint" }, "Balance = income minus expenses logged to each account."), list);
+  }
+
+  // ---------------------------------------------------------------- Settings
+  const CURRENCIES = ["KES", "ETB", "UGX", "TZS", "RWF", "NGN", "GHS", "ZAR", "USD", "EUR", "GBP"];
+
+  async function viewSettings() {
+    const s = state.me.settings;
+    const options = CURRENCIES.includes(s.currency) ? CURRENCIES : [s.currency, ...CURRENCIES];
+    const currency = h("select", { class: "input", "aria-label": "Currency", onchange: (e) => update({ currency: e.target.value }) },
+      options.map((c) => h("option", { value: c, selected: c === s.currency }, c)));
+    const recap = h("input", { type: "checkbox", checked: s.recap_enabled, onchange: (e) => update({ recap_enabled: e.target.checked }) });
+
+    async function update(change) {
+      try {
+        const res = await api("/api/settings", { method: "PUT", body: change });
+        state.me.settings = res.settings;
+        state.currency = res.settings.currency;
+        haptic("success");
+        toast("Saved");
+      } catch (err) { toast(err.message); go("settings"); }
+    }
+
+    return h("div", {}, h("h1", {}, "Settings"),
+      h("div", { class: "list" },
+        h("label", { class: "row" }, h("span", { class: "main" }, "Currency"), h("span", { style: "width:120px" }, currency)),
+        h("label", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Weekly recap"),
+          h("div", { class: "sub" }, "A summary from the bot every Monday morning")),
+          h("span", { class: "switch" }, recap, h("span", {})))),
+      h("h2", {}, "Data"),
+      h("div", { class: "list" }, h("div", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Export CSV"),
+        h("div", { class: "sub" }, "Coming soon")), h("button", { class: "btn secondary", disabled: true }, "Export"))),
+      h("p", { class: "hint center", style: "margin-top:24px" }, `Signed in as ${state.me.user.first_name || "you"}`));
+  }
+
+  // ---------------------------------------------------------------- start
+  async function boot() {
+    if (tg) { tg.ready(); tg.expand(); }
+    screen.replaceChildren(h("div", { class: "spinner" }));
+    try {
+      state.me = await api("/api/me");
+      state.currency = state.me.settings.currency;
+      go("home");
+    } catch (err) {
+      showError(err);
+    }
+  }
+  boot();
+})();

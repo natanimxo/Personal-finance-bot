@@ -23,7 +23,7 @@ def test_fresh_database_gets_schema(fresh_db):
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         versions = [r[0] for r in conn.execute("SELECT version FROM schema_version")]
     assert {"expenses", "budgets", "users", "user_settings", "schema_version"} <= tables
-    assert versions == [1, 2]
+    assert versions == [v for v, _ in db._migration_files()]
     assert not (fresh_db.parent / "backups").exists()  # nothing to back up on an empty database
 
 

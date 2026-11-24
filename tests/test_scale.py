@@ -304,35 +304,7 @@ def test_error_alert_goes_to_admin_at_most_once_a_minute(db, monkeypatch):
     run(scenario())
 
 
-async def _http(port, path):
-    reader, writer = await asyncio.open_connection("127.0.0.1", port)
-    writer.write(f"GET {path} HTTP/1.1\r\nHost: x\r\n\r\n".encode())
-    await writer.drain()
-    response = await reader.read()
-    writer.close()
-    return int(response.split()[1]), response
-
-
-def test_healthz(db, monkeypatch):
-    from app.web import health
-
-    async def scenario():
-        server = await health.start_health_server(0, host="127.0.0.1")
-        port = server.sockets[0].getsockname()[1]
-        try:
-            assert (await _http(port, "/healthz"))[0] == 200
-            assert (await _http(port, "/other"))[0] == 404
-
-            def broken():
-                raise sqlite3.OperationalError("disk I/O error")
-
-            monkeypatch.setattr(health, "ping", broken)
-            assert (await _http(port, "/healthz"))[0] == 503
-        finally:
-            server.close()
-            await server.wait_closed()
-
-    run(scenario())
+# /healthz is served by the FastAPI app since Phase 3: see tests/test_api.py::test_healthz.
 
 
 # --- Input validation --------------------------------------------------------------

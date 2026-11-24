@@ -32,8 +32,9 @@ def recap_candidates(week_key: str):
     """Active users who have not been sent the recap for `week_key` yet."""
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT user_id FROM users WHERE active = 1 "
-            "AND (last_recap_sent IS NULL OR last_recap_sent <> ?) ORDER BY user_id",
+            "SELECT u.user_id FROM users u LEFT JOIN user_prefs p ON p.user_id = u.user_id "
+            "WHERE u.active = 1 AND COALESCE(p.recap_enabled, 1) = 1 "
+            "AND (u.last_recap_sent IS NULL OR u.last_recap_sent <> ?) ORDER BY u.user_id",
             (week_key,),
         ).fetchall()
         return [r["user_id"] for r in rows]
