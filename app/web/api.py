@@ -112,6 +112,12 @@ async def summary(period: str = Query("week", pattern="^(week|month)$"),
         raise HTTPException(422, detail={"error": t("api.bad_dates")})
 
 
+@router.get("/income")
+async def income(period: str = Query("week", pattern="^(week|month)$"), user: CurrentUser = Depends(current_user)):
+    """The Income screen: total, change vs the period before, and income by source."""
+    return await db_call(summaries.income_overview, user.id, period)
+
+
 # --- transactions ----------------------------------------------------------------
 class NewEntry(BaseModel):
     amount: Amount

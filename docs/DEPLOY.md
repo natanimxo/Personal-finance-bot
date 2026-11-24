@@ -167,7 +167,7 @@ Do this on a real phone, once in Telegram's light theme and once in dark.
 - [ ] Add an expense with the date set to yesterday, then a transfer Mobile Wallet → Cash.
 - [ ] History: scroll, filter by Income, search a note, open an entry and edit it.
 - [ ] Budgets: set a limit, add spending past 80%. The warning appears in the app **and** as a bot message.
-- [ ] Accounts: rename one, make another the default.
+- [ ] Income tab: week / month, sources, + Add income. Settings → Accounts: rename one, make another the default, make a transfer.
 - [ ] Settings: change the currency and the timezone, switch the monthly recap off, export the CSV (it arrives in the chat and opens in Excel or Sheets).
 - [ ] In the bot: `500 food lunch` → Undo; History → Older → open an entry → Delete.
 - [ ] The main button and the back button work, and the colours follow the theme.

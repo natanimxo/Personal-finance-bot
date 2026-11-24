@@ -142,3 +142,13 @@ body.has-fallback main { padding-bottom: 80px; }
 .quick .input { flex: 1; }
 .toast { display: flex; align-items: center; gap: 12px; }
 .toast-action { border: 0; background: none; color: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; padding: 0; }
+
+/* Income screen */
+.fill.income { background: var(--income); }
+.stat .note.change.up { color: var(--income); }
+.stat .note.change.down { color: var(--destructive); }
+.btn.wide { display: block; width: 100%; margin: 12px 0 4px; }
+.add-income { background: var(--income); color: #fff; }
+
+/* Accounts, opened from Settings */
+.link.back { border: 0; background: none; color: var(--link); padding: 4px 0; font-size: 15px; cursor: pointer; }
