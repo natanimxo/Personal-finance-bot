@@ -145,8 +145,9 @@ are no environment variables for it.
 - **The join screen** names the current channel, explains that it changes every 30
   days, and has 📢 Join (the bot's invite link) and ✅ I've joined.
 - **The admin** is never checked.
-- **If the bot isn't an admin** of a channel, that channel's check lets users
-  through instead of locking everyone out, and the admin gets an alert (also at
+- **If the bot isn't an admin** of a channel, or can't see it at all (Telegram
+  answers "chat not found"), that channel's check lets users through instead of
+  locking everyone out, and the admin gets an alert (also at
   startup and on `/gate_on`).
 
 Admin commands:

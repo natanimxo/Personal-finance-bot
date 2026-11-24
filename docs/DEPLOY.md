@@ -73,8 +73,8 @@ channels are already in the rotation (by numeric id). When you want it on:
    needed; Telegram only shows members (and lets a bot make invite links) for admins.
 2. Send `/gate_list` from the admin account: every channel should show its title and
    **bot admin ✅**.
-3. Send `/gate_on`. Any channel where the bot still isn't an admin is reported, and
-   lets users through until it's fixed.
+3. Send `/gate_on`. Any channel where the bot still isn't an admin (or that it can't
+   see at all) is reported, and lets users through until it's fixed.
 
 To change the rotation: forward a post from a channel to the bot and reply to it
 with `/gate_add`; `/gate_remove n` takes one out. Each user needs channel 1 for

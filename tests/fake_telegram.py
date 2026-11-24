@@ -47,7 +47,7 @@ class FakeRequest(BaseRequest):
         self.member_status = "member"
         self.member_is_member = True   # for "restricted": still in the chat?
         self.member_error = False      # getChatMember fails (Telegram trouble)
-        self.member_error_text = "Bad Request: chat not found"
+        self.member_error_text = "Bad Request: temporary failure"   # Telegram trouble, not our setup
         self.statuses = {}             # (chat_id, user_id) -> status, overrides member_status
         self.bot_admin_in = None       # chats where the bot (id 1) is admin; None = everywhere
         self.member_chats = []         # chat_id of every getChatMember call

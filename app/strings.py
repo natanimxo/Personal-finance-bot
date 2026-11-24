@@ -363,8 +363,9 @@ EN.update({
     "gate.get_started": "Tap a button to get started.",
     "gate.still_not": "Not in this month's channel yet. Join it first, then tap ✅ again.",
     "gate.alert_not_admin": (
-        "⚠️ <b>Channel gate</b>: the bot isn't an administrator of {channels}, so it can't see who "
-        "joined. Users are let through until you add the bot as an admin there."
+        "⚠️ <b>Channel gate</b>: the bot isn't an administrator of {channels} (or can't see the "
+        "channel at all), so it can't check who joined. Users are let through until you add the bot "
+        "as an admin there."
     ),
     "gate.status_title": "🔐 <b>Channel gate</b>: {state}",
     "gate.status_on": "on",

@@ -296,12 +296,32 @@ def test_startup_alert_for_channels_without_the_bot_as_admin(admin):
     run(scenario())
 
 
-def test_bot_not_admin_lets_users_through(three, monkeypatch):
+@pytest.mark.parametrize("error", ["Bad Request: member list is inaccessible",   # in it, but not admin
+                                   "Bad Request: chat not found"])                # can't see the channel
+def test_a_channel_the_bot_cant_check_lets_users_through_and_alerts(three, monkeypatch, error):
     monkeypatch.setattr(config, "ADMIN_CHAT_ID", ADMIN)
 
     async def scenario():
         async with Harness() as h:
-            h.request.member_error, h.request.member_error_text = True, "Bad Request: member list is inaccessible"
-            assert await membership.is_subscribed(SimpleNamespace(bot=h.app.bot), 5) is True
+            h.request.member_error, h.request.member_error_text = True, error
+            ctx = SimpleNamespace(bot=h.app.bot)
+            assert await membership.is_subscribed(ctx, 5) is True
+            assert await membership.is_subscribed(ctx, 6) is True
+            alerts = [p["text"] for e, p in h.request.sent if e == "sendMessage" and int(p["chat_id"]) == ADMIN]
+            assert len(alerts) == 1 and str(ONE) in alerts[0]
+
+    run(scenario())
+
+
+def test_other_telegram_trouble_uses_the_last_known_answer(three):
+    async def scenario():
+        async with Harness() as h:
+            ctx = SimpleNamespace(bot=h.app.bot)
+            h.request.member_error = True                       # e.g. a temporary failure
+            assert await membership.is_subscribed(ctx, 5) is False          # never seen: not let in
+            h.request.member_error = False
+            assert await membership.is_subscribed(ctx, 5, live=True) is True
+            h.request.member_error = True
+            assert await membership.is_subscribed(ctx, 5, live=True) is True   # last known: a member
 
     run(scenario())
