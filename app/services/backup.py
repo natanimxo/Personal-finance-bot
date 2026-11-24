@@ -149,6 +149,57 @@ def restore(backup_path: str, target_path: str):
     return target_path
 
 
+def _check_database(path: str):
+    """Raises ValueError unless `path` is a readable expense-bot database."""
+    try:
+        conn = sqlite3.connect(path)
+        try:
+            if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("the file is damaged (integrity check failed)")
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+    except sqlite3.DatabaseError as e:
+        raise ValueError(f"not an SQLite database ({e})")
+    if "expenses" not in tables:
+        raise ValueError("this SQLite file has no expenses table")
+
+
+def restore_live(data: bytes) -> dict:
+    """Put a rescued or backed-up database (.db or .db.gz bytes) in place while the
+    bot is running, e.g. right after attaching a Railway volume.
+
+    The file is checked first; the current database is backed up to backups/;
+    then SQLite's backup API copies the file into the live database (safe with
+    other connections open); then the migrations bring an older file up to date.
+    Returns row counts after the restore."""
+    import tempfile
+
+    from app.db import backup_database, get_conn, run_migrations
+
+    if data[:2] == b"\x1f\x8b":  # gzip magic number
+        data = gzip.decompress(data)
+    with tempfile.TemporaryDirectory() as tmp:
+        incoming = os.path.join(tmp, "incoming.db")
+        with open(incoming, "wb") as f:
+            f.write(data)
+        _check_database(incoming)
+        safety = backup_database("pre-restore") if os.path.exists(config.DB_PATH) else None
+        src = sqlite3.connect(incoming)
+        dest = sqlite3.connect(config.DB_PATH)
+        try:
+            src.backup(dest)
+        finally:
+            dest.close()
+            src.close()
+    applied = run_migrations()
+    with get_conn() as conn:
+        counts = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("expenses", "users", "budgets")}
+    logger.warning("Database restored from an uploaded file (%s); migrations applied: %s; safety copy: %s",
+                   counts, applied, safety)
+    return {"counts": counts, "migrations": applied, "safety_copy": safety}
+
+
 if __name__ == "__main__":
     # python -m app.services.backup restore <backup file> [target path]
     import sys

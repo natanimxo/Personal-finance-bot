@@ -99,19 +99,21 @@ def _ensure_legacy_columns(conn):
 def run_migrations():
     with get_conn() as conn:
         tables = _existing_tables(conn)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS schema_version ("
-            " version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)"
-        )
-        applied = {r["version"] for r in conn.execute("SELECT version FROM schema_version")}
+        applied = ({r["version"] for r in conn.execute("SELECT version FROM schema_version")}
+                   if "schema_version" in tables else set())
     pending = [(v, n) for v, n in _migration_files() if v not in applied]
     if not pending:
         return []
 
-    had_data = bool(tables - {"schema_version"})
-    if had_data:
+    # The safety copy is taken before anything is written, so it is the untouched original.
+    if tables - {"schema_version", "sqlite_sequence"}:
         path = backup_database("pre-migration")
         logger.info("Backed up the database to %s before running %d migration(s)", path, len(pending))
+    with get_conn() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_version ("
+            " version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)"
+        )
 
     done = []
     for version, name in pending:
