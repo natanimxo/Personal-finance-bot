@@ -34,9 +34,11 @@
     return el;
   }
 
+  // Same format as the bot (app/services/money.py): "KES 1,500", "KES 1,500.50", "−KES 200".
   function money(minor, { sign = false } = {}) {
     const n = Math.abs(minor) / 100;
-    const text = n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const cents = Math.abs(minor) % 100 !== 0;
+    const text = n.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 });
     const prefix = sign ? (minor > 0 ? "+" : minor < 0 ? "−" : "") : (minor < 0 ? "−" : "");
     return `${prefix}${state.currency} ${text}`;
   }
@@ -45,9 +47,19 @@
     try { tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred(kind); } catch (_) {}
   }
 
+  let undoAction = null;  // id of the entry a quick add just created
   let toastTimer;
   function toast(text, kind = "") {
-    toastEl.textContent = text;
+    toastEl.replaceChildren(document.createTextNode(text));
+    if (undoAction) {
+      const id = undoAction;
+      undoAction = null;
+      toastEl.append(h("button", { class: "toast-action", onclick: async () => {
+        toastEl.hidden = true;
+        try { await api(`/api/transactions/${id}`, { method: "DELETE" }); toast("Undone"); go(state.route); }
+        catch (err) { toast(err.message); }
+      } }, "Undo"));
+    }
     toastEl.className = "toast " + kind;
     toastEl.hidden = false;
     clearTimeout(toastTimer);
@@ -61,8 +73,14 @@
     });
   }
 
-  function localDay(iso) {
-    return new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  function localDay(isoDate) {  // "2026-11-22" -> "Sun, Nov 22, 2026"
+    const [y, m, d] = isoDate.split("-").map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  }
+
+  function todayIso() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
 
   function categoryLabel(type, key) {
@@ -221,11 +239,27 @@
       : h("button", { class: "card row", onclick: () => go("budgets") },
           h("span", { class: "main" }, "Set a monthly budget"), h("span", { class: "hint" }, "›"));
 
-    const accounts = h("div", { class: "list" }, data.accounts.map((a) => h("div", { class: "row" },
+    const accounts = h("div", { class: "list" }, data.accounts.filter((a) => !a.archived || a.balance_minor).map((a) => h("div", { class: "row" },
       h("span", { class: "main title" }, a.label, a.is_default ? " ⭐" : ""),
       h("span", { class: "amount " + (a.balance_minor < 0 ? "neg" : "") }, money(a.balance_minor)))));
 
-    return h("div", {}, seg, stats,
+    const quickInput = h("input", { class: "input", placeholder: "Quick add: 500 food lunch", "aria-label": "Quick add",
+      enterkeyhint: "done", autocomplete: "off" });
+    const quickForm = h("form", { class: "quick", onsubmit: async (e) => {
+      e.preventDefault();
+      const text = quickInput.value.trim();
+      if (!text) return;
+      try {
+        const res = await api("/api/quick", { method: "POST", body: { text } });
+        if (res.draft) { go("add", { draft: res.draft }); return; }
+        haptic(res.warning ? "warning" : "success");
+        undoAction = res.entry.id;  // set before toast() so this toast gets the Undo button
+        toast(res.warning ? warningText(res.warning) : `Added ${res.entry.category_label} ${money(res.entry.amount_minor)}`, res.warning ? "warn" : "");
+        go("home");
+      } catch (err) { haptic("error"); toast(err.message); }
+    } }, quickInput, h("button", { class: "btn", type: "submit" }, "Add"));
+
+    return h("div", {}, seg, quickForm, stats,
       h("h2", {}, "Spending by category"), spending,
       h("h2", {}, "Budgets this month"), budgetList,
       h("h2", {}, "Account balances"), accounts);
@@ -264,7 +298,7 @@
       try {
         const data = await api(`/api/transactions?${query()}`);
         for (const e of data.items) {
-          const day = localDay(e.created_at);
+          const day = localDay(e.date);
           if (day !== lastDay) {
             lastDay = day;
             dayList = h("div", { class: "list" });
@@ -285,9 +319,9 @@
     }
 
     const typeSeg = h("div", { class: "seg", role: "group", "aria-label": "Type" },
-      [["", "All"], ["expense", "Expenses"], ["income", "Income"]].map(([v, label]) => h("button", {
+      [["", "All"], ["expense", "Expenses"], ["income", "Income"], ["transfer", "Transfers"]].map(([v, label]) => h("button", {
         "aria-pressed": String(filters.type === v),
-        onclick: () => { filters.type = v; if (v && filters.category && !me.categories[v].some((c) => c.key === filters.category)) filters.category = ""; go("transactions"); },
+        onclick: () => { filters.type = v; if (v && filters.category && (v === "transfer" || !me.categories[v].some((c) => c.key === filters.category))) filters.category = ""; go("transactions"); },
       }, label)));
 
     let timer;
@@ -295,7 +329,7 @@
       "aria-label": "Search notes",
       oninput: (e) => { clearTimeout(timer); timer = setTimeout(() => { filters.q = e.target.value.trim(); go("transactions"); }, 400); } });
 
-    const cats = filters.type ? me.categories[filters.type] : [...me.categories.expense, ...me.categories.income.filter((c) => c.key !== "other")];
+    const cats = filters.type === "transfer" ? [] : filters.type ? me.categories[filters.type] : [...me.categories.expense, ...me.categories.income.filter((c) => c.key !== "other")];
     const select = (name, label, options) => h("select", { class: "input", "aria-label": label,
       onchange: (e) => { filters[name] = e.target.value; go("transactions"); } },
       h("option", { value: "" }, label), options.map((o) => h("option", { value: o.key, selected: filters[name] === o.key }, o.label)));
@@ -303,7 +337,8 @@
       onchange: (e) => { filters[name] = e.target.value; go("transactions"); } });
 
     const filterBox = h("div", { class: "filters" },
-      search, select("category", "All categories", cats), select("account", "All accounts", me.accounts),
+      search, select("category", "All categories", cats),
+      select("account", "All accounts", me.accounts.map((a) => ({ key: a.account, label: a.label }))),
       date("from", "From date"), date("to", "To date"),
       anyFilter() ? h("button", { class: "btn secondary wide", onclick: () => { Object.keys(filters).forEach((k) => (filters[k] = "")); go("transactions"); } }, "Clear filters") : null);
 
@@ -318,45 +353,67 @@
   function anyFilter() { return Object.values(filters).some(Boolean); }
 
   function entryRow(e) {
+    const transfer = e.type === "transfer";
     const signed = e.type === "income" ? e.amount_minor : -e.amount_minor;
     return h("button", { class: "row", onclick: () => go("edit", { entry: e }) },
       h("span", { class: "main" },
         h("div", { class: "title" }, e.category_label),
-        h("div", { class: "sub" }, [e.account_label, e.note].filter(Boolean).join(" · "))),
-      h("span", { class: "amount " + (e.type === "income" ? "income" : "") }, money(signed, { sign: true })));
+        h("div", { class: "sub" }, [transfer ? `${e.account_label} → ${e.to_account_label}` : e.account_label, e.note].filter(Boolean).join(" · "))),
+      h("span", { class: "amount " + (e.type === "income" ? "income" : "") }, transfer ? money(e.amount_minor) : money(signed, { sign: true })));
   }
 
   // ---------------------------------------------------------------- Add / Edit
-  async function viewEntry({ entry } = {}) {
+  async function viewEntry({ entry, draft } = {}) {
     const me = state.me;
     const editing = !!entry;
+    const start = entry || draft || {};
     const form = {
-      type: editing ? entry.type : "expense",
-      category: editing ? entry.category : null,
-      account: editing ? entry.account : (me.default_account || "cash"),
-      note: editing ? entry.note : "",
+      type: start.type || "expense",
+      category: start.category || null,
+      account: start.account || me.default_account || "cash",
+      note: start.note || "",
+      date: start.date || todayIso(),
+      to: start.to_account || null,
+      repeat: "",
     };
+    const lockedType = editing && (entry.type === "transfer" ? "transfer" : "money");  // can't switch in or out of transfer
     setBackButton(() => go(editing ? "transactions" : "home"));
 
     const amount = h("input", { class: "input amount-input", inputmode: "decimal", autocomplete: "off",
-      placeholder: "0.00", "aria-label": "Amount", value: editing ? (entry.amount_minor / 100).toFixed(2) : "" });
+      placeholder: "0.00", "aria-label": "Amount", value: start.amount_minor ? (start.amount_minor / 100).toFixed(2) : "" });
     const catBox = h("div", { class: "chips", role: "group", "aria-label": "Category" });
-    const drawCats = () => catBox.replaceChildren(...me.categories[form.type].map((c) => h("button", {
+    const drawCats = () => {
+      catField.hidden = form.type === "transfer";
+      if (form.type === "transfer") return;
+      catBox.replaceChildren(...me.categories[form.type].filter((c) => !c.hidden || c.key === form.category).map((c) => h("button", {
       class: "chip", "aria-pressed": String(form.category === c.key),
       onclick: () => { form.category = c.key; drawCats(); },
     }, c.label)));
+    };
 
     const typeSeg = h("div", { class: "seg", role: "group", "aria-label": "Type" });
-    const drawType = () => typeSeg.replaceChildren(...[["expense", "Expense"], ["income", "Income"]].map(([v, label]) => h("button", {
+    const typeOptions = [["expense", "Expense"], ["income", "Income"], ["transfer", "Transfer"]].filter(([v]) =>
+      !lockedType || (lockedType === "transfer" ? v === "transfer" : v !== "transfer"));
+    const drawType = () => typeSeg.replaceChildren(...typeOptions.map(([v, label]) => h("button", {
       "aria-pressed": String(form.type === v),
-      onclick: () => { if (form.type !== v) { form.type = v; form.category = null; drawType(); drawCats(); } },
+      onclick: () => { if (form.type !== v) { form.type = v; form.category = null; drawType(); drawCats(); drawAccounts(); drawRepeat(); } },
     }, label)));
 
     const accBox = h("div", { class: "chips", role: "group", "aria-label": "Account" });
-    const drawAccounts = () => accBox.replaceChildren(...me.accounts.map((a) => h("button", {
-      class: "chip", "aria-pressed": String(form.account === a.account),
-      onclick: () => { form.account = a.account; drawAccounts(); },
-    }, a.label, a.is_default ? " ⭐" : "")));
+    const toBox = h("div", { class: "chips", role: "group", "aria-label": "To account" });
+    const accLabel = h("label", {}, "Account");
+    const chipsFor = (selected, pick, exclude) => me.accounts
+      .filter((a) => (!a.archived || a.account === selected) && a.account !== exclude)
+      .map((a) => h("button", { class: "chip", "aria-pressed": String(selected === a.account), onclick: () => pick(a.account) },
+        a.label, a.is_default && form.type !== "transfer" ? " ⭐" : ""));
+    const drawAccounts = () => {
+      const transfer = form.type === "transfer";
+      accLabel.textContent = transfer ? "From" : "Account";
+      toField.hidden = !transfer;
+      if (transfer && form.to === form.account) form.to = null;
+      accBox.replaceChildren(...chipsFor(form.account, (k) => { form.account = k; drawAccounts(); }));
+      toBox.replaceChildren(...chipsFor(form.to, (k) => { form.to = k; drawAccounts(); }, form.account));
+    };
 
     const counter = h("div", { class: "counter" });
     const note = h("textarea", { class: "input", rows: 2, maxlength: 200, placeholder: "Optional", "aria-label": "Note",
@@ -364,20 +421,41 @@
     note.value = form.note;
     counter.textContent = `${note.value.length} / 200`;
 
-    drawType(); drawCats(); drawAccounts();
+    const dateInput = h("input", { class: "input", type: "date", value: form.date, max: todayIso(), "aria-label": "Date",
+      onchange: (e) => (form.date = e.target.value || todayIso()) });
+
+    const repeatBox = h("div", { class: "seg", role: "group", "aria-label": "Repeat" });
+    const drawRepeat = () => {
+      repeatField.hidden = editing || form.type === "transfer";
+      repeatBox.replaceChildren(...[["", "Once"], ["weekly", "Weekly"], ["monthly", "Monthly"]].map(([v, label]) => h("button", {
+        "aria-pressed": String(form.repeat === v), onclick: () => { form.repeat = v; drawRepeat(); },
+      }, label)));
+    };
+    const repeatField = h("div", { class: "field" }, h("label", {}, "Repeat"), repeatBox);
+    const catField = h("div", { class: "field" }, h("label", {}, "Category"), catBox);
+    const toField = h("div", { class: "field" }, h("label", {}, "To"), toBox);
+    drawType(); drawCats(); drawAccounts(); drawRepeat();
 
     async function save() {
+      const transfer = form.type === "transfer";
       if (!amount.value.trim()) { toast("Type an amount first."); amount.focus(); return; }
-      if (!form.category) { toast("Pick a category."); return; }
-      const body = { amount: amount.value.trim(), type: form.type, category: form.category, account: form.account, note: note.value };
+      if (transfer && !form.to) { toast("Pick the account the money goes to."); return; }
+      if (!transfer && !form.category) { toast("Pick a category."); return; }
+      const body = transfer
+        ? { amount: amount.value.trim(), account: form.account, to_account: form.to, note: note.value, date: form.date }
+        : { amount: amount.value.trim(), type: form.type, category: form.category, account: form.account,
+            note: note.value, date: form.date, ...(!editing && form.repeat ? { repeat: form.repeat } : {}) };
       setMainBusy(true);
       try {
         const res = editing
           ? await api(`/api/transactions/${entry.id}`, { method: "PATCH", body })
-          : await api("/api/transactions", { method: "POST", body });
+          : transfer
+            ? await api("/api/transfers", { method: "POST", body: { amount: body.amount, from_account: form.account,
+                                                                      to_account: form.to, note: body.note, date: body.date } })
+            : await api("/api/transactions", { method: "POST", body });
         haptic(res.warning ? "warning" : "success");
         if (res.warning) toast(warningText(res.warning), "warn");
-        else toast(editing ? "Saved" : "Added");
+        else toast(editing ? "Saved" : res.recurring ? `Added, repeats ${res.recurring.frequency === "weekly" ? "every week" : "every month"}` : "Added");
         go(editing ? "transactions" : "home");
       } catch (err) {
         haptic("error");
@@ -402,12 +480,16 @@
       h("h1", {}, editing ? "Edit entry" : "New entry"),
       typeSeg,
       h("div", { class: "field" }, h("label", {}, "Amount", ` (${state.currency})`), amount),
-      h("div", { class: "field" }, h("label", {}, "Category"), catBox),
-      h("div", { class: "field" }, h("label", {}, "Account"), accBox),
+      catField,
+      h("div", { class: "field" }, accLabel, accBox),
+      toField,
+      h("div", { class: "field" }, h("label", {}, "Date"), dateInput),
+      repeatField,
       h("div", { class: "field" }, h("label", {}, "Note"), note, counter),
       editing ? h("p", { class: "hint" }, `Logged ${new Date(entry.created_at).toLocaleString()}`) : null,
       editing ? h("button", { class: "btn danger", onclick: remove }, "Delete entry") : null);
-    if (!editing) setTimeout(() => amount.focus(), 50);
+    if (!editing && !draft) setTimeout(() => amount.focus(), 50);
+    if (draft) toast("Pick a category to finish.");
     return view;
   }
 
@@ -454,28 +536,63 @@
 
   // ---------------------------------------------------------------- Accounts
   async function viewAccounts() {
-    const data = await api("/api/accounts");
-    const list = h("div", { class: "list" });
-    function draw() {
-      list.replaceChildren(...data.accounts.map((a) => h("div", { class: "row" },
+    let data = await api("/api/accounts");
+    const root = h("div");
+    let editing = null;  // key of the account being renamed
+
+    async function change(request, done) {
+      try {
+        data = await request();
+        state.me.accounts = data.accounts;
+        state.me.default_account = data.default_account;
+        editing = null;
+        haptic("success");
+        if (done) toast(done);
+        draw();
+      } catch (err) { haptic("error"); toast(err.message); }
+    }
+
+    function accountRow(a) {
+      if (editing === a.account) {
+        const input = h("input", { class: "input", value: a.label, maxlength: 30, "aria-label": "Account name" });
+        setTimeout(() => input.focus(), 30);
+        return h("div", { class: "row" }, h("div", { class: "inline-edit", style: "padding:0;flex:1" }, input,
+          h("button", { class: "btn", onclick: () => change(() => api(`/api/accounts/${a.account}`, { method: "PATCH", body: { name: input.value } }), "Renamed") }, "Save"),
+          h("button", { class: "btn secondary", onclick: () => { editing = null; draw(); } }, "✕")));
+      }
+      const actions = a.archived
+        ? [h("button", { class: "btn secondary", onclick: () => change(() => api(`/api/accounts/${a.account}`, { method: "PATCH", body: { archived: false } }), "Restored") }, "Restore")]
+        : [
+            a.is_default ? null : h("button", { class: "chip", title: "Make default", "aria-label": `Make ${a.label} the default`,
+              onclick: () => change(() => api("/api/accounts", { method: "PUT", body: { default_account: a.account } }), "Default set") }, "⭐"),
+            h("button", { class: "chip", "aria-label": `Rename ${a.label}`, onclick: () => { editing = a.account; draw(); } }, "✏️"),
+            h("button", { class: "chip", "aria-label": `Archive ${a.label}`, onclick: async () => {
+              if (await confirmDialog(`Archive ${a.label}? It disappears from pickers; its history and balance stay.`))
+                change(() => api(`/api/accounts/${a.account}`, { method: "PATCH", body: { archived: true } }), "Archived");
+            } }, "🗄️"),
+          ];
+      return h("div", { class: "row" },
         h("span", { class: "main" },
           h("div", { class: "title" }, a.label, a.is_default ? " ⭐" : ""),
-          h("div", { class: "sub" }, a.is_default ? "Default for new entries" : "")),
-        h("span", { class: "amount " + (a.balance_minor < 0 ? "neg" : "") }, money(a.balance_minor)),
-        a.is_default ? null : h("button", { class: "btn secondary", "aria-label": `Make ${a.label} the default`, onclick: async () => {
-          try {
-            const res = await api("/api/accounts", { method: "PUT", body: { default_account: a.account } });
-            data.accounts = res.accounts;
-            state.me.accounts = res.accounts;
-            state.me.default_account = a.account;
-            haptic("success");
-            draw();
-          } catch (err) { toast(err.message); }
-        } }, "Make default"))));
+          h("div", { class: "sub amount " + (a.balance_minor < 0 ? "neg" : "") }, money(a.balance_minor))),
+        ...actions);
+    }
+
+    function draw() {
+      const active = data.accounts.filter((a) => !a.archived);
+      const archived = data.accounts.filter((a) => a.archived);
+      const newName = h("input", { class: "input", placeholder: "New account, e.g. Savings", maxlength: 30, "aria-label": "New account name" });
+      root.replaceChildren(
+        h("h1", {}, "Accounts"),
+        h("p", { class: "hint" }, "Balance = income minus expenses, plus transfers in, minus transfers out. ⭐ is where new entries go."),
+        h("div", { class: "list" }, active.map(accountRow)),
+        h("form", { class: "quick", onsubmit: (e) => { e.preventDefault(); if (newName.value.trim()) change(() => api("/api/accounts", { method: "POST", body: { name: newName.value } }), "Account added"); } },
+          newName, h("button", { class: "btn", type: "submit" }, "Add")),
+        archived.length ? h("h2", {}, "Archived") : null,
+        archived.length ? h("div", { class: "list" }, archived.map(accountRow)) : null);
     }
     draw();
-    return h("div", {}, h("h1", {}, "Accounts"),
-      h("p", { class: "hint" }, "Balance = income minus expenses logged to each account."), list);
+    return root;
   }
 
   // ---------------------------------------------------------------- Settings
@@ -483,10 +600,66 @@
 
   async function viewSettings() {
     const s = state.me.settings;
+    const recurringList = h("div", { class: "list" });
+    const loadRecurring = async () => {
+      const { recurring } = await api("/api/recurring");
+      recurringList.replaceChildren(...(recurring.length ? recurring.map((r) => h("div", { class: "row" },
+        h("span", { class: "main" },
+          h("div", { class: "title" }, `${r.category_label} · ${money(r.type === "income" ? r.amount_minor : -r.amount_minor, { sign: true })}`),
+          h("div", { class: "sub" }, [r.frequency === "weekly" ? "Every week" : "Every month", `next ${localDay(r.next_date)}`, r.note].filter(Boolean).join(" · "))),
+        h("button", { class: "btn secondary", "aria-label": "Stop repeating", onclick: async () => {
+          if (!(await confirmDialog("Stop repeating this? Entries already logged stay."))) return;
+          try { await api(`/api/recurring/${r.id}`, { method: "DELETE" }); toast("Stopped"); loadRecurring(); }
+          catch (err) { toast(err.message); }
+        } }, "Stop"))) : [h("div", { class: "empty" }, "Nothing repeats yet. Pick Weekly or Monthly when you add an entry.")]));
+    };
+    loadRecurring().catch((err) => recurringList.replaceChildren(h("div", { class: "empty" }, err.message)));
+
+    // Categories: add, rename, hide / show, per type. Hidden ones keep their past entries in summaries.
+    const categoryBox = h("div");
+    let catType = "expense", renaming = null;
+    const saveCats = async (request, done) => {
+      try {
+        const res = await request();
+        state.me.categories = res.categories;
+        renaming = null;
+        haptic("success");
+        toast(done);
+        drawCategories();
+      } catch (err) { haptic("error"); toast(err.message); }
+    };
+    function drawCategories() {
+      const list = state.me.categories[catType];
+      const rows = list.map((c) => {
+        if (renaming === c.key) {
+          const input = h("input", { class: "input", value: c.label, maxlength: 30, "aria-label": "Category name" });
+          setTimeout(() => input.focus(), 30);
+          return h("div", { class: "row" }, h("div", { class: "inline-edit", style: "padding:0;flex:1" }, input,
+            h("button", { class: "btn", onclick: () => saveCats(() => api(`/api/categories/${catType}/${c.key}`, { method: "PATCH", body: { name: input.value } }), "Renamed") }, "Save"),
+            h("button", { class: "btn secondary", onclick: () => { renaming = null; drawCategories(); } }, "✕")));
+        }
+        return h("div", { class: "row" },
+          h("span", { class: "main title" + (c.hidden ? " hint" : "") }, c.label, c.hidden ? " (hidden)" : ""),
+          c.hidden ? null : h("button", { class: "chip", "aria-label": `Rename ${c.label}`, onclick: () => { renaming = c.key; drawCategories(); } }, "✏️"),
+          h("button", { class: "chip", "aria-label": c.hidden ? `Show ${c.label}` : `Hide ${c.label}`,
+            onclick: () => saveCats(() => api(`/api/categories/${catType}/${c.key}`, { method: "PATCH", body: { hidden: !c.hidden } }), c.hidden ? "Visible again" : "Hidden") },
+            c.hidden ? "👁️" : "🙈"));
+      });
+      const newName = h("input", { class: "input", placeholder: catType === "expense" ? "New category, e.g. 🏠 Rent" : "New category, e.g. 🏦 Interest", maxlength: 30, "aria-label": "New category name" });
+      categoryBox.replaceChildren(
+        h("div", { class: "seg", role: "group", "aria-label": "Category type", style: "margin-bottom:8px" },
+          [["expense", "Expenses"], ["income", "Income"]].map(([v, label]) => h("button", {
+            "aria-pressed": String(catType === v), onclick: () => { catType = v; renaming = null; drawCategories(); } }, label))),
+        h("div", { class: "list" }, rows),
+        h("form", { class: "quick", onsubmit: (e) => { e.preventDefault(); if (newName.value.trim()) saveCats(() => api("/api/categories", { method: "POST", body: { type: catType, name: newName.value } }), "Category added"); } },
+          newName, h("button", { class: "btn", type: "submit" }, "Add")));
+    }
+    drawCategories();
     const options = CURRENCIES.includes(s.currency) ? CURRENCIES : [s.currency, ...CURRENCIES];
     const currency = h("select", { class: "input", "aria-label": "Currency", onchange: (e) => update({ currency: e.target.value }) },
       options.map((c) => h("option", { value: c, selected: c === s.currency }, c)));
     const recap = h("input", { type: "checkbox", checked: s.recap_enabled, onchange: (e) => update({ recap_enabled: e.target.checked }) });
+    const monthly = h("input", { type: "checkbox", checked: s.monthly_recap_enabled, onchange: (e) => update({ monthly_recap_enabled: e.target.checked }) });
 
     async function update(change) {
       try {
@@ -502,11 +675,24 @@
       h("div", { class: "list" },
         h("label", { class: "row" }, h("span", { class: "main" }, "Currency"), h("span", { style: "width:120px" }, currency)),
         h("label", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Weekly recap"),
-          h("div", { class: "sub" }, "A summary from the bot every Monday morning")),
-          h("span", { class: "switch" }, recap, h("span", {})))),
+          h("div", { class: "sub" }, "Every Monday morning, compared with the week before")),
+          h("span", { class: "switch" }, recap, h("span", {}))),
+        h("label", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Monthly recap"),
+          h("div", { class: "sub" }, "On the 1st, for the month that just ended")),
+          h("span", { class: "switch" }, monthly, h("span", {})))),
+      h("h2", {}, "Categories"),
+      categoryBox,
+      h("h2", {}, "Recurring"),
+      recurringList,
       h("h2", {}, "Data"),
       h("div", { class: "list" }, h("div", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Export CSV"),
-        h("div", { class: "sub" }, "Coming soon")), h("button", { class: "btn secondary", disabled: true }, "Export"))),
+        h("div", { class: "sub" }, "All your entries, sent to your Telegram chat")),
+        h("button", { class: "btn secondary", onclick: async (e) => {
+          e.target.disabled = true;
+          try { await api("/api/export", { method: "POST" }); haptic("success"); toast("Sent to your Telegram chat"); }
+          catch (err) { toast(err.message); }
+          finally { e.target.disabled = false; }
+        } }, "📤 Export"))),
       h("p", { class: "hint center", style: "margin-top:24px" }, `Signed in as ${state.me.user.first_name || "you"}`));
   }
 

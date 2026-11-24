@@ -41,7 +41,7 @@ demo = [  # (amount, category, type, account, note, days ago)
 for amount, category, type_, account, note, days in demo:
     entry_id = transactions.add_expense(UID, amount, category, note, type_=type_, account=account)
     with get_conn() as conn:
-        conn.execute("UPDATE expenses SET created_at = datetime('now', ?) WHERE id = ?", (f"-{days} days", entry_id))
+        conn.execute("UPDATE expenses SET occurred_at = datetime('now', ?) WHERE id = ?", (f"-{days} days", entry_id))
 
 init_data = make_init_data({"id": UID, "first_name": "Demo", "username": "demo"}, os.environ["BOT_TOKEN"])
 from urllib.parse import quote  # noqa: E402

@@ -14,9 +14,10 @@ BTN_SUMMARY = "📊 Summary"
 BTN_BUDGETS = "💰 Budgets"
 BTN_ACCOUNTS = "🏦 Accounts"
 BTN_HELP = "❓ Help"
+BTN_SETTINGS = "⚙️ Settings"
 BTN_CANCEL = "❌ Cancel"
 
-MENU_BUTTONS = [BTN_ADD, BTN_ADD_INCOME, BTN_HISTORY, BTN_SUMMARY, BTN_BUDGETS, BTN_ACCOUNTS, BTN_HELP]
+MENU_BUTTONS = [BTN_ADD, BTN_ADD_INCOME, BTN_HISTORY, BTN_SUMMARY, BTN_BUDGETS, BTN_ACCOUNTS, BTN_SETTINGS, BTN_HELP]
 MENU_OR_CANCEL = filters.Text(MENU_BUTTONS + [BTN_CANCEL])
 # Free text typed during a guided flow (amount / note), excluding commands and buttons.
 FLOW_TEXT = filters.TEXT & ~filters.COMMAND & ~MENU_OR_CANCEL
@@ -46,7 +47,7 @@ BTN_OPEN_APP = "📱 Open app"
 
 
 def main_menu_keyboard():
-    rows = [[BTN_ADD, BTN_ADD_INCOME], [BTN_HISTORY, BTN_SUMMARY], [BTN_BUDGETS, BTN_ACCOUNTS], [BTN_HELP]]
+    rows = [[BTN_ADD, BTN_ADD_INCOME], [BTN_HISTORY, BTN_SUMMARY], [BTN_BUDGETS, BTN_ACCOUNTS], [BTN_SETTINGS, BTN_HELP]]
     from app.web.server import mini_app_url
 
     url = mini_app_url()
@@ -66,27 +67,30 @@ def _grid(buttons, with_cancel: bool):
     return InlineKeyboardMarkup(rows)
 
 
-def account_keyboard(prefix: str, default: str = None, with_cancel: bool = True, sep: str = "_"):
-    """Account picker; the default account (if any) is marked with ⭐."""
+def account_keyboard(prefix: str, options, default: str = None, with_cancel: bool = True, sep: str = "_"):
+    """Picker over the user's accounts, `options` = [(key, name)]; the default is marked with ⭐."""
     buttons = [
         InlineKeyboardButton(f"⭐ {label}" if key == default else label, callback_data=f"{prefix}{sep}{key}")
-        for key, label in ACCOUNTS
+        for key, label in options
     ]
     return _grid(buttons, with_cancel)
 
 
-def category_keyboard(prefix: str):
-    buttons = [InlineKeyboardButton(label, callback_data=f"{prefix}_{key}") for key, label in CATEGORIES]
+def category_keyboard(prefix: str, options):
+    """Picker over the user's categories, `options` = [(key, name)]."""
+    buttons = [InlineKeyboardButton(label, callback_data=f"{prefix}_{key}") for key, label in options]
     return _grid(buttons, with_cancel=True)
 
 
-def income_category_keyboard(prefix: str):
-    buttons = [InlineKeyboardButton(label, callback_data=f"{prefix}_{key}") for key, label in INCOME_CATEGORIES]
-    return _grid(buttons, with_cancel=True)
+DATE_CHOICES = [("today", "Today"), ("yesterday", "Yesterday"), ("other", "📅 Other date")]
 
 
-def note_keyboard(skip_data: str):
+def note_keyboard(skip_data: str, day_choice: str = "today"):
+    """Skip / Cancel, plus the date: Today (default), Yesterday or Other date."""
+    dates = [InlineKeyboardButton(("✓ " if key == day_choice else "") + label, callback_data=f"fdate:{key}")
+             for key, label in DATE_CHOICES]
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("⏭️ Skip", callback_data=skip_data),
+        [dates,
+         [InlineKeyboardButton("⏭️ Skip", callback_data=skip_data),
           InlineKeyboardButton(BTN_CANCEL, callback_data=CB_FLOW_CANCEL)]]
     )

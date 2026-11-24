@@ -92,6 +92,15 @@ def create_app(application=None) -> FastAPI:
     from app.web.api import router
     web.include_router(router)
 
+    @web.middleware("http")
+    async def revalidate_app_files(request: Request, call_next):
+        """The Mini App's files must never run stale after a deploy: browsers (and
+        Telegram's in-app browser) revalidate each time, getting 304 if unchanged."""
+        response = await call_next(request)
+        if not request.url.path.startswith(("/api/", WEBHOOK_PATH)):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     @web.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):
         logger.error("Unhandled API error on %s", request.url.path, exc_info=exc)

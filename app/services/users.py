@@ -28,18 +28,26 @@ def is_active(user_id: int) -> bool:
         return bool(row and row["active"])
 
 
-def recap_candidates(week_key: str):
-    """Active users who have not been sent the recap for `week_key` yet."""
+RECAP_KINDS = {  # kind -> (the user's switch, the "already sent" column)
+    "weekly": ("recap_enabled", "last_recap_sent"),
+    "monthly": ("monthly_recap_enabled", "last_monthly_recap_sent"),
+}
+
+
+def recap_candidates(period_key: str, kind: str = "weekly"):
+    """Active users with this recap switched on who haven't been sent the one for `period_key`."""
+    switch, sent = RECAP_KINDS[kind]
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT u.user_id FROM users u LEFT JOIN user_prefs p ON p.user_id = u.user_id "
-            "WHERE u.active = 1 AND COALESCE(p.recap_enabled, 1) = 1 "
-            "AND (u.last_recap_sent IS NULL OR u.last_recap_sent <> ?) ORDER BY u.user_id",
-            (week_key,),
+            f"SELECT u.user_id FROM users u LEFT JOIN user_prefs p ON p.user_id = u.user_id "
+            f"WHERE u.active = 1 AND COALESCE(p.{switch}, 1) = 1 "
+            f"AND (u.{sent} IS NULL OR u.{sent} <> ?) ORDER BY u.user_id",
+            (period_key,),
         ).fetchall()
         return [r["user_id"] for r in rows]
 
 
-def mark_recap_sent(user_id: int, week_key: str):
+def mark_recap_sent(user_id: int, period_key: str, kind: str = "weekly"):
+    sent = RECAP_KINDS[kind][1]
     with get_conn() as conn:
-        conn.execute("UPDATE users SET last_recap_sent = ? WHERE user_id = ?", (week_key, user_id))
+        conn.execute(f"UPDATE users SET {sent} = ? WHERE user_id = ?", (period_key, user_id))

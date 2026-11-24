@@ -13,13 +13,13 @@ def _range(since: datetime, until: datetime = None):
 
 
 def totals_minor(user_id: int, since: datetime, until: datetime = None):
-    """(income, expenses) in cents for since <= created_at < until."""
+    """(income, expenses) in cents for since <= occurred_at < until."""
     start, end = _range(since, until)
     with get_conn() as conn:
         row = conn.execute(
             "SELECT SUM(CASE WHEN type = 'income' THEN amount_minor ELSE 0 END) AS income, "
             "SUM(CASE WHEN type = 'expense' THEN amount_minor ELSE 0 END) AS expense "
-            "FROM expenses WHERE user_id = ? AND created_at >= ? AND created_at < ?",
+            "FROM expenses WHERE user_id = ? AND occurred_at >= ? AND occurred_at < ?",
             (user_id, start, end),
         ).fetchone()
     return row["income"] or 0, row["expense"] or 0
@@ -30,7 +30,7 @@ def by_category_minor(user_id: int, since: datetime, type_: str = "expense", unt
     with get_conn() as conn:
         return [dict(r) for r in conn.execute(
             "SELECT category, SUM(amount_minor) AS total_minor, COUNT(*) AS count FROM expenses "
-            "WHERE user_id = ? AND type = ? AND created_at >= ? AND created_at < ? "
+            "WHERE user_id = ? AND type = ? AND occurred_at >= ? AND occurred_at < ? "
             "GROUP BY category ORDER BY total_minor DESC",
             (user_id, type_, start, end),
         )]
@@ -54,10 +54,14 @@ def period_bounds(period: str = "week", date_from: str = None, date_to: str = No
 def summary(user_id: int, period: str = "week", date_from: str = None, date_to: str = None, now: datetime = None):
     start, end, name = period_bounds(period, date_from, date_to, now)
     income, expense = totals_minor(user_id, start, end)
+    from app.services.categories import names
+    labels = names(user_id, "expense")
     categories = by_category_minor(user_id, start, "expense", end)
-    for c in categories:
-        c["label"] = catalog.label_for(c["category"], "expense")
+    for c in categories:  # hidden categories included: their entries still count
+        c["label"] = labels.get(c["category"]) or catalog.label_for(c["category"], "expense")
+    from app.services.prefs import get_prefs
     return {
+        "currency": get_prefs(user_id)["currency"],
         "period": name,
         "from": start.isoformat(),
         "to": end.isoformat() if end else None,

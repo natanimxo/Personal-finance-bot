@@ -57,9 +57,9 @@ def test_1_recap_covers_last_monday_to_sunday(db):
                             (40, "2026-11-22T21:00:00")]:  # Mon 23 Nov 00:00: this week, out
         entry = transactions.add_expense(UID, amount, "food")
         with get_conn() as conn:
-            conn.execute("UPDATE expenses SET created_at = ? WHERE id = ?", (created, entry))
+            conn.execute("UPDATE expenses SET occurred_at = ? WHERE id = ?", (created, entry))
     text = recap_text(UID, start, end)
-    assert "Expenses: 50.00" in text and "Mon 16 Nov – Sun 22 Nov" in text
+    assert "Expenses: KES 50" in text and "Mon 16 Nov – Sun 22 Nov" in text
     assert_valid_html(text)
 
 
@@ -101,7 +101,7 @@ def test_2_with_default_the_account_step_is_skipped_and_can_be_changed(db):
             assert "note" in out.texts[-1]
             out = await h.tap("skip_note")
             confirmation = out.texts[-2]
-            assert "Mobile Wallets" in confirmation
+            assert "M-Pesa" in confirmation   # a new user's mobile-money account
             change = [b for b in out.buttons(-2) if b["text"] == "🔁 Change account"]
             assert change and out.has_main_keyboard(-1)
 
@@ -174,7 +174,7 @@ def test_5_history_labels_and_signs(db):
     async def scenario():
         async with Harness() as h:
             out = await h.text(BTN_HISTORY)
-            assert out.texts == [f"No transactions yet. Tap {BTN_ADD} or {BTN_ADD_INCOME} to log your first one."]
+            assert out.texts[0].startswith(f"📋 No transactions yet. Tap {BTN_ADD} or {BTN_ADD_INCOME}")
             await add_expense(h, amount="12.50")
             await h.text(BTN_ADD_INCOME)
             await h.text("300")
@@ -182,9 +182,10 @@ def test_5_history_labels_and_signs(db):
             await h.tap("incacc_cash")
             await h.tap("skip_income_note")
             out = await h.text(BTN_HISTORY)
-            assert out.texts[0] == "📋 <b>Recent transactions:</b>"
-            assert "+300.00" in out.texts[1] and "Gift" in out.texts[1]
-            assert f"{MINUS}12.50" in out.texts[2] and "Food" in out.texts[2]
+            lines = out.texts[0].split("\n")
+            assert lines[0] == "📋 <b>All</b> · 1–2, newest first"
+            assert "+KES 300" in lines[2] and "Gift" in lines[2]
+            assert f"{MINUS}KES 12.50" in lines[3] and "Food" in lines[3]
 
     run(scenario())
 
@@ -199,7 +200,7 @@ def test_6_gate_with_underscore_link_and_note_with_markup_characters(db, monkeyp
             assert all(p.get("parse_mode") == "HTML" for _, p in out)
             assert "&lt;b&gt;lunch&lt;/b&gt; * _x_ &amp; co" in out.texts[-1]
             out = await h.text(BTN_HISTORY)
-            assert "&lt;b&gt;lunch" in out.texts[1]
+            assert "&lt;b&gt;lunch" in out.texts[0]   # the whole page is one message now
 
             h.request.member_status = "left"
             membership_cache.clear()  # a member is trusted for 15 min; simulate that passing
@@ -215,8 +216,12 @@ def test_7_history_mid_entry_shows_history(db):
         async with Harness() as h:
             await h.text(BTN_ADD)
             out = await h.text(BTN_HISTORY)
-            assert out.texts[0].startswith("No transactions yet") and out.has_main_keyboard(0)
-            assert await h.text("50") == []   # the entry is gone; 50 is not an amount any more
+            assert out.has_main_keyboard(0) and out.texts[1].startswith("📋 No transactions yet")
+            # The abandoned entry is gone: "50" is now a quick entry asking for its category,
+            # not the old flow's amount (which would answer "Pick a category:").
+            out = await h.text("50")
+            assert out.texts == ["KES 50: which category?"]
+            assert transactions.list_recent(UID) == []
 
     run(scenario())
 
@@ -268,7 +273,8 @@ def test_7_unfinished_entry_times_out(db):
             h.request.sent.clear()
             await asyncio.sleep(2.5)
             assert any("timed out" in t for t in [p.get("text", "") for _, p in h.request.sent])
-            assert await h.text("75") == []
+            out = await h.text("75")
+            assert out.texts == ["KES 75: which category?"]  # a quick entry, not the timed-out flow
 
     run(scenario())
 

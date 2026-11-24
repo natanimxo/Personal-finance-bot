@@ -12,8 +12,9 @@ from telegram.ext import (
 from telegram.warnings import PTBUserWarning
 
 from app.bot import handlers as h
+from app.bot import accounts_ui, categories_ui, edit, history, quick, recurring_ui, settings_ui
 from app.bot.keyboards import (
-    BTN_ACCOUNTS, BTN_ADD, BTN_ADD_INCOME, BTN_BUDGETS, BTN_CANCEL, BTN_HELP, BTN_HISTORY, BTN_SUMMARY,
+    BTN_ACCOUNTS, BTN_ADD, BTN_ADD_INCOME, BTN_BUDGETS, BTN_CANCEL, BTN_HELP, BTN_HISTORY, BTN_SETTINGS, BTN_SUMMARY,
     CB_FLOW_CANCEL, FLOW_TEXT, MENU_BUTTONS,
 )
 from app.bot.errors import on_error
@@ -23,7 +24,7 @@ FLOW_TIMEOUT = 10 * 60  # seconds an unfinished entry stays open
 
 # Buttons that open a plain screen. Add Expense / Add Income are entry points of the
 # flow itself, so tapping them mid-flow restarts the flow with that type (allow_reentry).
-SCREEN_BUTTONS = [BTN_HISTORY, BTN_SUMMARY, BTN_BUDGETS, BTN_ACCOUNTS, BTN_HELP]
+SCREEN_BUTTONS = [BTN_HISTORY, BTN_SUMMARY, BTN_BUDGETS, BTN_ACCOUNTS, BTN_SETTINGS, BTN_HELP]
 
 
 def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
@@ -37,6 +38,11 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 MessageHandler(filters.Text([BTN_ADD]), h.add_start),
                 MessageHandler(filters.Text([BTN_ADD_INCOME]), h.add_income_start),
                 CallbackQueryHandler(h.budget_start, pattern="^set_budget_start$"),
+                CallbackQueryHandler(edit.edit_text_start, pattern=r"^edf:(amount|note|date):\d+$"),
+                CallbackQueryHandler(accounts_ui.name_start, pattern=r"^acc:(add|ren:\w+)$"),
+                CallbackQueryHandler(accounts_ui.transfer_start, pattern=r"^acc:transfer$"),
+                CallbackQueryHandler(settings_ui.other_currency_start, pattern=r"^cur:other$"),
+                CallbackQueryHandler(categories_ui.name_start, pattern=r"^cat:(add:(expense|income)|ren:(expense|income):\w+)$"),
             ],
             states={
                 h.ASK_AMOUNT: [MessageHandler(FLOW_TEXT, h.add_amount_received)],
@@ -45,6 +51,7 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 h.ASK_NOTE: [
                     MessageHandler(FLOW_TEXT, h.add_note_received),
                     CallbackQueryHandler(h.add_note_skipped, pattern="^skip_note$"),
+                    CallbackQueryHandler(h.flow_date_chosen, pattern="^fdate:"),
                 ],
                 h.ASK_INCOME_AMOUNT: [MessageHandler(FLOW_TEXT, h.add_income_amount_received)],
                 h.ASK_INCOME_CATEGORY: [CallbackQueryHandler(h.add_income_category_chosen, pattern="^inccat_")],
@@ -52,9 +59,18 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
                 h.ASK_INCOME_NOTE: [
                     MessageHandler(FLOW_TEXT, h.add_income_note_received),
                     CallbackQueryHandler(h.add_income_note_skipped, pattern="^skip_income_note$"),
+                    CallbackQueryHandler(h.flow_date_chosen, pattern="^fdate:"),
                 ],
+                h.ASK_DATE: [MessageHandler(FLOW_TEXT, h.flow_date_typed)],
                 h.BUDGET_CATEGORY: [CallbackQueryHandler(h.budget_category_chosen, pattern="^budgetcat_")],
                 h.BUDGET_AMOUNT: [MessageHandler(FLOW_TEXT, h.budget_amount_received)],
+                edit.EDIT_TEXT: [MessageHandler(FLOW_TEXT, edit.edit_text_received)],
+                accounts_ui.ACCOUNT_NAME: [MessageHandler(FLOW_TEXT, accounts_ui.name_received)],
+                accounts_ui.TRANSFER_FROM: [CallbackQueryHandler(accounts_ui.transfer_from, pattern=r"^trf:\w+$")],
+                accounts_ui.TRANSFER_TO: [CallbackQueryHandler(accounts_ui.transfer_to, pattern=r"^trt:\w+$")],
+                accounts_ui.TRANSFER_AMOUNT: [MessageHandler(FLOW_TEXT, accounts_ui.transfer_amount)],
+                settings_ui.SETTINGS_CURRENCY: [MessageHandler(FLOW_TEXT, settings_ui.other_currency_received)],
+                categories_ui.CATEGORY_NAME: [MessageHandler(FLOW_TEXT, categories_ui.name_received)],
                 ConversationHandler.TIMEOUT: [
                     MessageHandler(filters.ALL, h.conversation_timeout),
                     CallbackQueryHandler(h.conversation_timeout),
@@ -93,12 +109,52 @@ def register_handlers(app, flow_timeout: int = FLOW_TIMEOUT):
     app.add_handler(MessageHandler(filters.Text([BTN_SUMMARY]), h.summary_view))
     app.add_handler(MessageHandler(filters.Text([BTN_BUDGETS]), h.budgets_view))
     app.add_handler(MessageHandler(filters.Text([BTN_ACCOUNTS]), h.accounts_view))
+    app.add_handler(MessageHandler(filters.Text([BTN_SETTINGS]), settings_ui.settings_view))
+    app.add_handler(CommandHandler("settings", settings_ui.settings_view))
+    app.add_handler(CallbackQueryHandler(settings_ui.currency_menu, pattern=r"^set:currency$"))
+    app.add_handler(CallbackQueryHandler(settings_ui.currency_chosen, pattern=r"^cur:[A-Z]{3}$"))
+    app.add_handler(CallbackQueryHandler(settings_ui.toggle_recap, pattern=r"^set:m?recap$"))
+    app.add_handler(CallbackQueryHandler(settings_ui.back, pattern=r"^set:back$"))
+    app.add_handler(CallbackQueryHandler(settings_ui.export_callback, pattern=r"^set:export$"))
+    app.add_handler(CommandHandler("export", settings_ui.export_command))
+    app.add_handler(CallbackQueryHandler(recurring_ui.recurring_view, pattern=r"^set:recurring$"))
+    app.add_handler(CallbackQueryHandler(categories_ui.list_view, pattern=r"^cat:list:(expense|income)$"))
+    app.add_handler(CallbackQueryHandler(categories_ui.pick, pattern=r"^cat:pick:(ren|hide|show):(expense|income)$"))
+    app.add_handler(CallbackQueryHandler(categories_ui.hide_or_show, pattern=r"^cat:(hide|show):(expense|income):\w+$"))
+    app.add_handler(CallbackQueryHandler(recurring_ui.recurring_delete, pattern=r"^repdel:\d+$"))
+    app.add_handler(CallbackQueryHandler(recurring_ui.repeat_menu, pattern=r"^rep:\d+$"))
+    app.add_handler(CallbackQueryHandler(recurring_ui.repeat_set, pattern=r"^repset:\d+:(weekly|monthly)$"))
 
     app.add_handler(CallbackQueryHandler(recheck_sub_callback, pattern="^recheck_sub$"))
-    app.add_handler(CallbackQueryHandler(h.delete_callback, pattern="^del_"))
+    app.add_handler(CallbackQueryHandler(h.delete_callback, pattern="^del_"))  # buttons on older History messages
+    app.add_handler(CallbackQueryHandler(history.page_callback, pattern=r"^hpg:(all|expense|income|transfer):\d+$"))
+    app.add_handler(CallbackQueryHandler(history.open_entry, pattern=r"^hopen:\d+:\w+:\d+$"))
+    app.add_handler(CallbackQueryHandler(history.delete_from_list, pattern=r"^hdel:\d+:\w+:\d+$"))
     app.add_handler(CallbackQueryHandler(h.summary_callback, pattern="^sum_"))
     app.add_handler(CallbackQueryHandler(h.set_default_account_start, pattern="^set_default_account_start$"))
     app.add_handler(CallbackQueryHandler(h.set_default_account_callback, pattern="^setdefacc_"))
     app.add_handler(CallbackQueryHandler(h.change_account_start, pattern=r"^chacc:\d+$"))
     app.add_handler(CallbackQueryHandler(h.change_account_chosen, pattern=r"^setacc:\d+:\w+$"))
     app.add_handler(CallbackQueryHandler(h.stale_cancel, pattern=f"^{CB_FLOW_CANCEL}$"))
+
+    # Editing a saved entry (History ✏️ Edit). Typed fields are part of the flow above.
+    app.add_handler(CallbackQueryHandler(edit.edit_start, pattern=r"^edit:\d+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_done, pattern=r"^eddone:\d+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_category_menu, pattern=r"^edcat:\d+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_account_menu, pattern=r"^edacc:\d+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_set_choice, pattern=r"^edset(cat|acc|to):\d+:\w+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_date_menu, pattern=r"^eddate:\d+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_to_menu, pattern=r"^edto:\d+$"))
+    app.add_handler(CallbackQueryHandler(edit.edit_set_date, pattern=r"^edsetdate:\d+:(today|yesterday)$"))
+
+    # Accounts screen: choose an account to rename / archive / restore, and archive it.
+    app.add_handler(CallbackQueryHandler(accounts_ui.choose_for, pattern=r"^acc:(ren|arch|restore)$"))
+    app.add_handler(CallbackQueryHandler(accounts_ui.archive, pattern=r"^acc:(archive|unarch):\w+$"))
+    app.add_handler(CallbackQueryHandler(accounts_ui.back, pattern=r"^acc:back$"))
+
+    # Quick entry: a plain message that starts with an amount ("500 food lunch").
+    # Registered after the flows, so a number typed as a flow's answer goes to the flow.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Regex(r"^\s*\+?\s*\.?\d"),
+                                   quick.quick_entry_message))
+    app.add_handler(CallbackQueryHandler(quick.quick_category_chosen, pattern="^qcat_"))
+    app.add_handler(CallbackQueryHandler(quick.undo_callback, pattern=r"^undo:\d+$"))

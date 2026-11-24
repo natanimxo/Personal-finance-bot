@@ -43,7 +43,7 @@ def test_savings_rate():
 def _entry(user_id, amount, created_at, category="food", type_="expense"):
     entry_id = transactions.add_expense(user_id, amount, category, "", type_=type_)
     with get_conn() as conn:
-        conn.execute("UPDATE expenses SET created_at = ? WHERE id = ?", (created_at, entry_id))
+        conn.execute("UPDATE expenses SET occurred_at = ? WHERE id = ?", (created_at, entry_id))
 
 
 def test_month_spending_in_summary_equals_budget_spending(fresh_db):

@@ -33,7 +33,7 @@ def add_last_week_entry(user_id, amount=10):
     users.register_user(user_id)
     entry = transactions.add_expense(user_id, amount, "food")
     with get_conn() as conn:
-        conn.execute("UPDATE expenses SET created_at = ? WHERE id = ?", (LAST_WEEK, entry))
+        conn.execute("UPDATE expenses SET occurred_at = ? WHERE id = ?", (LAST_WEEK, entry))
 
 
 # --- SQLite tuning ----------------------------------------------------------------

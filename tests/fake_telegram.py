@@ -32,6 +32,7 @@ class FakeRequest(BaseRequest):
         self._send_times = []
         self.delivered = []            # chat ids that really received a message
         self.calls = []                # every (endpoint, params), in order
+        self.documents = []            # files sent with sendDocument
 
     async def initialize(self):
         pass
@@ -62,6 +63,8 @@ class FakeRequest(BaseRequest):
             return 403, json.dumps({"ok": False, "error_code": 403, "description": "Forbidden: bot was blocked by the user"}).encode()
         elif endpoint == "sendDocument":
             self.sent.append((endpoint, params))
+            files = (request_data.multipart_data or {}) if request_data else {}
+            self.documents.extend(files.values())   # (filename, bytes, mimetype)
             result = {"message_id": len(self.sent), "date": 0, "chat": CHAT}
         elif endpoint in ("sendMessage", "editMessageText", "editMessageReplyMarkup"):
             self.sent.append((endpoint, params))

@@ -97,8 +97,10 @@ def test_non_member_gets_403_with_the_join_link(server):
 def test_me(server):
     body = server.get("/api/me", headers=auth()).json()
     assert body["user"]["id"] == UID
-    assert body["settings"] == {"currency": "KES", "recap_enabled": True}
-    assert [a["account"] for a in body["accounts"]] == ["cash", "bank", "card", "mobile_money"]
+    assert body["settings"] == {"currency": "KES", "recap_enabled": True, "monthly_recap_enabled": True}
+    # A new user starts with the plan's default accounts: Cash, M-Pesa, Bank, Card.
+    assert [(a["account"], a["label"]) for a in body["accounts"]] == [
+        ("cash", "💵 Cash"), ("mobile_money", "📱 M-Pesa"), ("bank", "🏦 Bank"), ("card", "💳 Card")]
     assert body["default_account"] is None
     assert {c["key"] for c in body["categories"]["income"]} >= {"salary", "gift"}
 
@@ -199,7 +201,7 @@ def test_budgets_set_and_remove(server):
 
 def test_settings(server):
     r = server.put("/api/settings", headers=auth(), json={"currency": "etb", "recap_enabled": False})
-    assert r.json()["settings"] == {"currency": "ETB", "recap_enabled": False}
+    assert r.json()["settings"] == {"currency": "ETB", "recap_enabled": False, "monthly_recap_enabled": True}
     assert server.get("/api/me", headers=auth()).json()["settings"]["currency"] == "ETB"
     assert server.put("/api/settings", headers=auth(), json={"currency": "birr"}).status_code == 422
 
@@ -241,7 +243,7 @@ def test_entry_added_in_the_app_shows_in_bot_history_and_back(server):
         return [p.get("text", "") for _, p in server.fake.sent]
 
     history = bot_says(BTN_HISTORY)
-    assert any("42.00" in t and "from app" in t for t in history)
+    assert any("KES 42" in t and "from app" in t for t in history)
 
     bot_says("➕ Add Expense")
     bot_says("17")
@@ -298,6 +300,7 @@ def test_mini_app_files_are_served(server):
     page = server.get("/")
     assert page.status_code == 200 and "telegram-web-app.js" in page.text
     assert server.get("/app.js").status_code == 200 and server.get("/styles.css").status_code == 200
+    assert server.get("/app.js").headers["cache-control"] == "no-cache"     # never stale after a deploy
 
 
 def test_healthz(server, monkeypatch):
@@ -343,11 +346,19 @@ def test_list_is_ordered_by_date_not_by_id(server):
     ids = [transactions.add_expense(UID, n, "food") for n in range(1, 36)]
     with get_conn() as conn:  # give every entry a shuffled date
         for i, entry_id in enumerate(ids):
-            conn.execute("UPDATE expenses SET created_at = ? WHERE id = ?",
+            conn.execute("UPDATE expenses SET occurred_at = ? WHERE id = ?",
                          (f"2026-11-{(i * 7) % 28 + 1:02d}T10:00:00", entry_id))
     first = server.get("/api/transactions", headers=auth()).json()
     second = server.get("/api/transactions", params={"cursor": first["next_cursor"]}, headers=auth()).json()
-    dates = [e["created_at"] for e in first["items"] + second["items"]]
+    dates = [e["occurred_at"] for e in first["items"] + second["items"]]
     assert len(dates) == 35 and dates == sorted(dates, reverse=True)
     assert second["next_cursor"] is None
     assert server.get("/api/transactions", params={"cursor": "junk"}, headers=auth()).status_code == 422
+
+
+def test_quick_add_in_the_app(server):
+    r = server.post("/api/quick", headers=auth(), json={"text": "350 transport mpesa matatu"}).json()
+    assert r["entry"]["amount_minor"] == 35000 and r["entry"]["account"] == "mobile_money"
+    r = server.post("/api/quick", headers=auth(), json={"text": "500 sugar"}).json()
+    assert r["entry"] is None and r["draft"]["amount_minor"] == 50000 and r["draft"]["note"] == "sugar"
+    assert server.post("/api/quick", headers=auth(), json={"text": "hello"}).status_code == 422

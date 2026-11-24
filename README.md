@@ -10,25 +10,49 @@ Everything works through buttons — there are no commands to type besides
 
 | Button | What happens |
 | --- | --- |
-| ➕ Add Expense | Type the amount → pick a category → pick an account (skipped when you have a ⭐ default; the confirmation then offers 🔁 Change account) → add a note or skip |
+| ➕ Add Expense | Type the amount → pick a category → pick an account (skipped when you have a ⭐ default; the confirmation then offers 🔁 Change account) → add a note or skip. The note step also has Today / Yesterday / 📅 Other date (Today unless you change it) |
 | 💵 Add Income | Same flow, with income categories (Salary, Freelance, Business, Gift, Other) |
-| 📋 History | Your last 10 transactions (income marked +, expenses −), each with a 🗑️ Delete button |
+| 📋 History | One message, 10 entries a page (income +, expenses −, transfers 🔁), with ⬅️ Newer / Older ➡️ and a filter: All, Expenses, Income or Transfers. Tap an entry's number to open it, then ✏️ Edit (amount, category, account, date, note, 🔁 Repeat) or 🗑️ Delete |
 | 📊 Summary | Income, expenses, net and savings rate (net ÷ income, shown when there is income) for this week (from Monday) or this month (from the 1st), plus spending by category |
 | 💰 Budgets | Set a monthly limit per expense category. You're warned at 80% and when you go over |
-| 🏦 Accounts | Balance per account (Cash, Bank, Card, Mobile Wallets) and your ⭐ default account, which new entries use without asking |
+| 🏦 Accounts | Balance per account and your ⭐ default account (new entries use it without asking). 🔁 Transfer moves money between accounts (From → To → amount): both balances change, but it never counts as income or an expense. ➕ Add, ✏️ Rename and 🗄️ Archive accounts, and ♻️ restore archived ones. A rename or archive keeps the account's history and balance |
+| ⚙️ Settings | Your currency (amounts show as `KES 1,500`; pick from a list or type any 3-letter code), the weekly and monthly recaps on/off, 🏷️ Categories (add, rename, hide or show again, for expenses and income; a hidden category leaves the pickers but its past entries still count in summaries), 🔁 Recurring entries (stop any of them), and 📤 Export CSV. Also `/settings` and `/export` |
 | ❓ Help | How the flow works |
 
-- Expense categories: Food, Transport, Bills, Shopping, Fun, Other.
+- **Quick entry:** just send `500 food lunch`, `+20000 salary` or
+  `350 transport mpesa matatu`. The number comes first, and `+` means income.
+  Category and account words are matched case-insensitively (aliases like
+  lunch → Food, matatu → Transport, mpesa → Mobile Wallets), and the rest
+  becomes the note. With no category word you get the category buttons, with
+  the amount kept. Every quick entry has an ↩️ Undo button. The Mini App's
+  Home screen has the same box.
+- Everyone starts with these expense categories: Food, Transport, Bills, Shopping, Fun, Other (income: Salary,
+  Freelance, Business, Gift, Other), and can add their own. Quick entry matches your own category and account
+  names first, then the built-in aliases.
 - Amounts accept `12.50`, `1,200` or `1 200`.
 - Every step has a ❌ Cancel button (or send `/cancel`). Tapping any menu
   button also ends a half-finished entry and opens that screen, and an
   unfinished entry times out after 10 minutes.
 - Every **Monday at 08:00** (`APP_TIMEZONE`, default Africa/Nairobi) each
-  subscribed user who logged something gets a recap of the previous Monday–Sunday.
+  subscribed user who logged something gets a recap of the previous Monday–Sunday,
+  compared with the week before it (↑/↓ %) and naming the top category. On the
+  **1st at 08:00** a monthly recap covers the month that just ended. Each can be
+  turned off in ⚙️ Settings (bot or Mini App).
+- **CSV export:** 📤 in ⚙️ Settings (bot or Mini App) or `/export`. The bot
+  sends the file into the chat. It has one row per entry (date it happened,
+  type, category, account, to-account for transfers, amount, currency, note),
+  UTF-8 with a BOM, ISO dates and plain numbers (expenses negative), so it opens
+  correctly in Excel and Google Sheets.
+- **Recurring entries:** open an entry (📋 History → ✏️ Edit → 🔁 Repeat) and
+  pick Weekly or Monthly, or choose Repeat when adding one in the Mini App.
+  Every day at **06:00** (`APP_TIMEZONE`) the bot logs what is due, each copy
+  on its own date (a missed day is caught up), and messages you with ↩️ Undo.
+  A restart never creates a duplicate.
 - Weeks start Monday 00:00 and months on the 1st at 00:00, both in `APP_TIMEZONE`.
-  Summary, budgets and the recap all use the same periods.
+  Summary, budgets and the recap all use the same periods, and they count an
+  entry by the date it **happened** (which can be in the past), not when it was logged.
 - Admin commands (only for `ADMIN_CHAT_ID`; anyone else gets no reply):
-  `/recap_now` sends the admin a preview of their own recap, and
+  `/recap_now` (or `/recap_now month`) sends the admin a preview of their own recap, and
   `/backup_now` makes a backup and sends it to the admin chat.
 - Errors are logged in full, and the admin gets a short alert (at most one a minute).
 - `GET /healthz` on `$PORT` answers 200 when the database responds, 503 when it doesn't.
@@ -72,6 +96,7 @@ printed URL. It uses demo data and a fake Telegram.
 | `BOT_TOKEN` | yes | Token from BotFather |
 | `CHANNEL_ID` | yes | `@username` or numeric ID of the channel users must join (old name `REQUIRED_CHANNEL` still works) |
 | `CHANNEL_LINK` | yes | Link shown on the "join the channel" screen (old name `CHANNEL_INVITE_LINK` still works) |
+| `DEFAULT_ACCOUNTS` | no | Accounts a new user starts with (default `Cash,M-Pesa,Bank,Card`; existing users keep their own) |
 | `APP_TIMEZONE` | no | Timezone for weeks, months and the recap (default `Africa/Nairobi`) |
 | `ADMIN_CHAT_ID` | no | Telegram id allowed to use `/recap_now` |
 | `PUBLIC_URL` | for the Mini App | Base https URL. Default: `https://$RAILWAY_PUBLIC_DOMAIN` |
