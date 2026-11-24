@@ -67,21 +67,25 @@ they're ignored and can be deleted.
 ## 4b. The channel gate (later)
 
 The gate has no variables: it lives in the database and starts **off**. The six
-channels are already in the rotation (by numeric id). When you want it on:
+channels are already in the rotation, by numeric id, in this order: Earn Stack,
+Crypto Notebook, We Talk A Lot, Crypto Alpha Edge US, Hustle To Millions, Crypto
+Wall Street. When you want it on:
 
-1. In each channel: **Administrators → Add Admin →** your bot. No special rights are
-   needed; Telegram only shows members (and lets a bot make invite links) for admins.
-2. Send `/gate_list` from the admin account: every channel should show its title and
-   **bot admin ✅**.
-3. Send `/gate_on`. Any channel where the bot still isn't an admin (or that it can't
-   see at all) is reported, and lets users through until it's fixed.
+1. In each channel the bot must be an **administrator** with the **"Invite users
+   via link"** right (Telegram only shows members to admins, and the bot makes the
+   join links itself).
+2. Send `/gate_list`: every channel should show **bot admin ✅ · invite link ✅**.
+3. Send `/gate_on`. It checks every channel again, makes one "Finance Bot" invite
+   link per channel (kept and reused; replaced only if revoked), and reports any
+   channel that fails. The same check runs at every startup while the gate is on.
+4. Later: `/gate_status` for the numbers so far, `/gate_stats 30` for the last 30 days.
 
-To change the rotation: forward a post from a channel to the bot and reply to it
-with `/gate_add`; `/gate_remove n` takes one out. Each user needs channel 1 for
-their first 30 days, then the next channel every 30 days, round the list. The
-admin account is never checked. Old `GATE_ENABLED`, `GATE_CHANNELS`, `CHANNEL_ID`
-/ `REQUIRED_CHANNEL` and `CHANNEL_LINK` / `CHANNEL_INVITE_LINK` variables are
-ignored and can be deleted.
+How it works for users: days 1–30 after their first contact are free; then one
+channel per 30-day period, in list order, round again (days 31–60 channel 1, 61–90
+channel 2, …). They must stay in the current period's channel: leaving it shows
+"You left …" at their next action. Earlier channels are never checked again. The
+admin account is never checked. To change the rotation: forward a post from a
+channel to the bot and reply to it with `/gate_add`; `/gate_remove n` takes one out.
 
 ## 5. Health check and replicas
 
@@ -121,7 +125,7 @@ A daily backup `.db.gz` from the admin chat works the same way.
   location). After that 📋 History shows your old entries and ➕ Add Expense works.
 - The **Open app** button (bottom left of the chat) opens the Mini App.
 - `/backup_now`: a `.db.gz` arrives in the admin chat.
-- `/gate_status`: shows the gate off and the six channels (each with bot admin ✅ once added).
+- `/gate_list`: the gate off and the six channels, each with bot admin ✅ and invite link ✅.
 - `/recap_now`: a recap preview arrives.
 
 Then do the **phone test** below.
@@ -174,7 +178,7 @@ Do this on a real phone, once in Telegram's light theme and once in dark.
 | The weekly recap arrives Monday 08:00 in each user's own timezone | Automated: `tests/test_worldwide.py` (Tokyo and New York users), `tests/test_better_recaps.py`. On Railway: `/recap_now`, then wait for Monday |
 | Every user picks their currency and timezone at first start | Automated: `tests/test_worldwide.py`. Phone test |
 | All bot text is in one file | Automated: `tests/test_strings.py` |
-| Channel gate: in the database by numeric id, off until /gate_on, rotation every 30 days per user, every member status, admin exempt, never mid-entry | Automated: `tests/test_gate.py`. On Railway: `/gate_list` |
+| Channel gate: by numeric id in the database, off until /gate_on, 30 free days then one channel per 30 days, must stay in the current channel, one stored invite link, events counted | Automated: `tests/test_gate.py`. On Railway: `/gate_list`, `/gate_status` |
 | The Mini App opens from the menu button and works in light and dark themes | Phone test |
 | Entries match between the bot and the Mini App | Automated: `tests/test_api.py::test_entry_added_in_the_app_shows_in_bot_history_and_back`. Phone test |
 | Quick entry, editing, past dates and transfers work in both | Automated: `tests/test_quick_entry.py`, `test_edit_entries.py`, `test_past_dates.py`, `test_transfers.py`. Phone test |

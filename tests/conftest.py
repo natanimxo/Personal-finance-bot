@@ -44,9 +44,10 @@ def gate_on_with_one_channel(request, monkeypatch):
     from app.bot import membership
     from app.services import gate
 
-    membership._not_admin_alerted.clear()
+    membership._alerted.clear()
     if request.module.__name__.endswith("test_gate"):
         return
     channel = gate.Channel(TEST_CHANNEL, 1, "Test Channel", "https://t.me/+testInvite")
     monkeypatch.setattr(gate, "is_on", lambda: True)
     monkeypatch.setattr(gate, "channels", lambda now=None: [channel])
+    monkeypatch.setattr(gate, "FREE_DAYS", 0)   # no free days, so every test user is checked

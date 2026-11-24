@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from app import config
 from app.bot.handlers import budget_warning_text
-from app.bot.membership import is_subscribed, touch_user
+from app.bot.membership import touch_user
 from app.db import db_call
 from app.services import (
     accounts, budgets, catalog, categories, periods, prefs, quick_entry, recurring, summaries, transactions,
@@ -40,15 +40,11 @@ async def current_user(request: Request, authorization: str = Header(default="")
     bot = request.app.state.application.bot
     await touch_user(user_id)  # a first visit starts the free month
     # The same rule as the bot, checked once per request (an app screen = starting an action).
-    if not await is_subscribed(SimpleNamespace(bot=bot), user_id):
-        from app.bot.membership import channel_title, invite_link
-        from app.services import gate
+    from app.bot.membership import check_access, join_details
 
-        channel = await db_call(gate.required_channel, user_id)
-        raise HTTPException(403, detail={
-            "error": "not_subscribed",
-            "join_link": (await invite_link(bot, channel) or "") if channel else "",
-            "channel": await channel_title(bot, channel) if channel else ""})
+    allowed, pos = await check_access(bot, user_id)
+    if not allowed:
+        raise HTTPException(403, detail={"error": "not_subscribed", **await join_details(bot, user_id, pos)})
     await touch_user(user_id)
     # Every date in this request (weeks, months, "today") is in the user's own timezone.
     periods.set_zone(await db_call(periods.user_zone_name, user_id), user_id)

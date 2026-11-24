@@ -351,33 +351,53 @@ EN.update({
 # --- the channel gate ----------------------------------------------------------------------
 EN.update({
     "gate.text": (
-        "🔒 <b>This month's channel: {name}</b>\n\n"
-        "The bot is free. Each month you just need to be in that month's channel: it changes "
-        "every 30 days, and you only need the current one.\n\n"
+        "🔒 <b>This period's channel: {name}</b>\n\n"
+        "The bot is free. Every 30 days there's one channel to be in, and this is yours for "
+        "the next {days} day(s). You only need the current one.\n\n"
+        "Tap 📢 Join, then ✅ I've joined."
+    ),
+    "gate.text_left": (
+        "🔒 <b>You left {name}.</b> Rejoin to keep using the bot.\n\n"
+        "It's your channel for this period ({days} more day(s)). Your entries are all still here.\n\n"
         "Tap 📢 Join, then ✅ I've joined."
     ),
     "gate.join": "📢 Join {name}",
     "gate.subscribed": "✅ I've joined",
     "gate.youre_in": "You're in! 🎉",
-    "gate.confirmed": "✅ You're in this month's channel. Here's your menu 👇",
+    "gate.confirmed": "✅ You're in this period's channel. Here's your menu 👇",
     "gate.get_started": "Tap a button to get started.",
-    "gate.still_not": "Not in this month's channel yet. Join it first, then tap ✅ again.",
+    "gate.still_not": "Not in this period's channel yet. Join it first, then tap ✅ again.",
     "gate.alert_not_admin": (
         "⚠️ <b>Channel gate</b>: the bot isn't an administrator of {channels} (or can't see the "
         "channel at all), so it can't check who joined. Users are let through until you add the bot "
         "as an admin there."
     ),
+    "gate.alert_no_invite": (
+        "⚠️ <b>Channel gate</b>: the bot can't make an invite link for {channels}. Give it the "
+        "\"Invite users via link\" admin right there, then send /gate_on again. Until then the join "
+        "screen has no Join button."
+    ),
     "gate.status_title": "🔐 <b>Channel gate</b>: {state}",
     "gate.status_on": "on",
     "gate.status_off": "off (nobody is checked; /gate_on to start)",
-    "gate.list_line": "{number}. {title} (<code>{chat_id}</code>) · bot admin {admin}",
-    "gate.list_users": "   {users} user(s) on it now",
-    "gate.admin_yes": "✅",
-    "gate.admin_no": "❌",
-    "gate.admin_unknown": "❓",
+    "gate.stats_title": "📈 <b>Channel gate, last {days} day(s)</b>",
+    "gate.stats_how": "Send /gate_stats followed by a number of days, e.g. <code>/gate_stats 30</code>.",
+    "gate.list_line": "{number}. {title} (<code>{chat_id}</code>) · bot admin {admin} · invite link {invite}",
+    "gate.yes": "✅",
+    "gate.no": "❌",
+    "gate.unknown": "❓",
+    "gate.count_title": "<b>{number}. {title}</b>",
+    "gate.count_line": (
+        "   required now {required} · shown {shown} · joined via bot {joined_via_bot} · "
+        "already members {already_member} · left {left} · rejoined {rejoined} · subscribed now {subscribed}"
+    ),
+    "gate.free_users": "In their free first {free} days: {users} user(s)",
+    "gate.rules": (
+        "Each user: days 1–{free} free, then one channel per {period} days in list order "
+        "(channel 1, channel 2, …), round the list again."
+    ),
     "gate.list_empty": "No channels yet. Forward a post from a channel to me, then reply to it with /gate_add.",
-    "gate.status_rules": "Each user: channel 1 for their first {period} days, then the next one every {period} days, round the list.",
-    "gate.list_help": "/gate_add (reply to a forwarded channel post) · /gate_remove n · /gate_on · /gate_off",
+    "gate.list_help": "/gate_add (reply to a forwarded channel post) · /gate_remove n · /gate_on · /gate_off · /gate_status · /gate_stats n",
     "gate.add_how": "Forward any post from the channel to me, then reply to that forwarded post with /gate_add. (Or: /gate_add -100…)",
     "gate.add_not_numeric": "Channels are added by their numeric id, like <code>-1001234567890</code>. Forward a post from the channel and reply to it with /gate_add.",
     "gate.add_already": "That channel is already in the rotation.",

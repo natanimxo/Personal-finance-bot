@@ -108,8 +108,12 @@ def register_handlers(app, flow_timeout: int = FLOW_TIMEOUT):
     app.add_handler(CommandHandler("recap_now", h.recap_now))
     app.add_handler(CommandHandler("backup_now", h.backup_now))
     from app.bot import gate_admin
-    for name in ("gate_add", "gate_remove", "gate_list", "gate_status", "gate_on", "gate_off"):
+    for name in ("gate_add", "gate_remove", "gate_list", "gate_status", "gate_stats", "gate_on", "gate_off"):
         app.add_handler(CommandHandler(name, getattr(gate_admin, name)))
+    # Joins and leaves in the gate's channels (the webhook asks Telegram for chat_member updates).
+    from telegram.ext import ChatMemberHandler
+    from app.bot.membership import on_chat_member
+    app.add_handler(ChatMemberHandler(on_chat_member, ChatMemberHandler.CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.Document.ALL & filters.CaptionRegex(r"^/restore\b"), h.restore_upload))
     app.add_handler(MessageHandler(filters.Text([BTN_HELP]), h.help_view))
     app.add_handler(MessageHandler(filters.Text([BTN_HISTORY]), h.history_view))

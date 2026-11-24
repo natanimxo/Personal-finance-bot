@@ -83,7 +83,7 @@ Admin only (the `ADMIN_CHAT_ID` account; anyone else gets no reply):
 
 - `/recap_now`: a preview of your own weekly recap (`/recap_now month` for the monthly one)
 - `/backup_now`: make a backup and send it to the admin chat
-- `/gate_list`, `/gate_status`, `/gate_add`, `/gate_remove n`, `/gate_on`, `/gate_off`: manage the
+- `/gate_list`, `/gate_status`, `/gate_stats n`, `/gate_add`, `/gate_remove n`, `/gate_on`, `/gate_off`: manage the
   [channel gate](#the-channel-gate)
 - **Restore:** send a `.db` or `.db.gz` file with the caption /restore (see [Backups and restore](#backups-and-restore))
 
@@ -129,36 +129,74 @@ are no environment variables for it.
 - **Off** until you send `/gate_on`; `/gate_off` stops all checks again.
 - **Channels** are stored by **numeric chat id only** (`-100…`), never by @username,
   so renaming a channel or the bot breaks nothing. Titles come from Telegram
-  (`getChat`) and join links are created by the bot itself
-  (`createChatInviteLink`, each valid 48 hours); both are cached for 24 hours.
-- **The bot must be an administrator of every channel** (no special rights needed):
-  Telegram only shows a channel's members, and only lets a bot make invite links,
-  when it's an admin.
-- **Rotation, per user:** from a user's first contact with the bot, days 1–30 need
-  channel 1, days 31–60 channel 2, and so on round the list, automatically. A user
-  only needs the current channel. There is no free period.
-- **Joined means** `creator`, `administrator` or `member`, or `restricted` while still
-  a member.
-- **When it's checked:** only when a user starts something (a menu screen, a
-  command, the start of an entry, a quick entry, a Mini App screen), never in the
-  middle of an entry. A "member" answer is cached for 15 minutes.
-- **The join screen** names the current channel, explains that it changes every 30
-  days, and has 📢 Join (the bot's invite link) and ✅ I've joined.
-- **The admin** is never checked.
-- **If the bot isn't an admin** of a channel, or can't see it at all (Telegram
-  answers "chat not found"), that channel's check lets users through instead of
-  locking everyone out, and the admin gets an alert (also at
-  startup and on `/gate_on`).
+  (`getChat`, kept a day).
+- **The bot must be an administrator of every channel, with the "Invite users via
+  link" right.** Telegram only shows a channel's members to its admins, and the
+  bot makes the join links itself.
+- **Invite links:** one per channel, named "Finance Bot", made with
+  `createChatInviteLink` when the gate is turned on (`/gate_on`, or at startup while
+  it's on), stored, and reused. A new one is made only if the old one was revoked.
 
-Admin commands:
+### Rotation (per user, automatic)
+
+Counted from each user's first contact with the bot:
+
+| Days | Required channel |
+| --- | --- |
+| 1–30 | none (free) |
+| 31–60 | channel 1 |
+| 61–90 | channel 2 |
+| … | the next one in the list |
+| after the last | channel 1 again |
+
+Nothing has to be changed by hand each month. Only the current period's channel
+is checked; leaving a channel from an earlier period has no effect.
+
+### Staying in
+
+- **Joined means** `creator`, `administrator` or `member`, or `restricted` while
+  still a member.
+- A "member" answer is cached for 15 minutes; a "not a member" answer is never
+  cached; ✅ I've joined always asks Telegram again.
+- **Checked only when a user starts something** (a menu screen, a command, the
+  start of an entry, a quick entry, a Mini App screen), never in the middle of an
+  entry. Nothing a user logged is ever touched.
+- **Leaving the current channel:** the bot gets a `chat_member` update (the webhook
+  asks Telegram for them), drops that user's cached answer at once, and their next
+  action shows *"You left <channel>. Rejoin to keep using the bot."*
+- **The join screen** names the channel, says it's this period's channel and how
+  many days are left, and has 📢 Join and ✅ I've joined. Without the invite right
+  in that channel there is no Join button, and the admin gets an alert.
+- **If Telegram can't answer**, the last known answer is used, and a user is never
+  blocked just because of an error. If the bot can't check a channel at all (not an
+  admin, or can't see it), users are let through and the admin is alerted.
+- **The Mini App** follows the same rule: a 403 with the channel, its join link and
+  the days left, and the app shows its own join screen.
+- **The admin** is never checked.
+
+### Counting the members the bot brings in
+
+Every step is recorded in `gate_events`, only for the channel that was the user's
+required channel at that moment:
+
+| Event | When |
+| --- | --- |
+| `shown` | the join screen was displayed |
+| `already_member` | a member the first time they were checked this period |
+| `joined_via_bot` | not a member when first checked this period, a member afterwards |
+| `left` | left their current required channel |
+| `rejoined` | joined again after leaving, in the same period |
+
+### Admin commands
 
 | Command | What it does |
 | --- | --- |
-| `/gate_add` | Forward any post from the channel to the bot, then reply to it with `/gate_add`. The bot reads the channel's id, checks it's an admin there, and adds it to the end of the rotation (up to 6). `/gate_add -100…` works too |
+| `/gate_on` / `/gate_off` | Start or stop checking. `/gate_on` also checks every channel (admin, invite right), makes the invite links, and reports anything that fails |
+| `/gate_list` | The rotation: order, title, id, bot admin ✅/❌, invite link ✅/❌ |
+| `/gate_status` | Per channel: users required to join it now, shown, joined via bot, already members, left, rejoined, still subscribed now; plus users in their free days |
+| `/gate_stats n` | The same numbers for the last *n* days |
+| `/gate_add` | Forward any post from the channel to the bot, then reply to it with `/gate_add`. The bot reads the id, checks it's an admin there, and adds it to the end (up to 6). `/gate_add -100…` works too |
 | `/gate_remove n` | Takes channel *n* out; the ones after it move up |
-| `/gate_list` | The rotation: order, title, id, whether the bot is admin, users on each now |
-| `/gate_status` | The same, plus whether the gate is on |
-| `/gate_on` / `/gate_off` | Start or stop checking |
 
 ## Configuration
 

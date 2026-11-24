@@ -23,6 +23,7 @@ DYNAMIC = {
     "csv.": ["expense", "income", "transfer"],
     "region.": ["africa", "americas", "asia", "europe", "oceania"],
     "settings.": ["weekly_on", "weekly_off", "monthly_on", "monthly_off"],
+    "gate.alert_": ["not_admin", "no_invite"],
 }
 
 
