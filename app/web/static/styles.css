@@ -112,6 +112,8 @@ button.row { cursor: pointer; }
 .state { text-align: center; padding: 56px 24px; }
 .state .big { font-size: 48px; }
 .state p { color: var(--hint); }
+/* The channel join screen: a compact title that stays on one line on a phone. */
+.state.join h1 { font-size: 22px; line-height: 1.25; margin: 0 0 8px; }
 .sentinel { height: 1px; }
 .spinner { margin: 40px auto; width: 28px; height: 28px; border-radius: 50%;
   border: 3px solid var(--separator); border-top-color: var(--button); animation: spin .8s linear infinite; }

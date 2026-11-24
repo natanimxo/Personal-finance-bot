@@ -350,23 +350,18 @@ EN.update({
 
 # --- the channel gate ----------------------------------------------------------------------
 EN.update({
-    "gate.text": (
-        "🔒 <b>This period's channel: {name} — {days} days left</b>\n\n"
-        "The bot is free. Every 30 days there's one channel everyone needs to be in, "
-        "and you only need the current one.\n\n"
-        "Tap 📢 Join, then ✅ I've joined."
-    ),
-    "gate.text_left": (
-        "🔒 <b>You left {name}.</b> Rejoin to keep using the bot.\n\n"
-        "This period's channel: {name} — {days} days left. Your entries are all still here.\n\n"
-        "Tap 📢 Join, then ✅ I've joined."
-    ),
+    # What users see. Never explain how the gate works (no periods, days, schedule or
+    # other channels): only the current channel's name, on the Join button.
+    "gate.text": "👋 Welcome to Wallet Buddy!\nIt's completely free. Just join our channel to get started.",
+    "gate.text_left": "Looks like you left {name}. Rejoin to keep using Wallet Buddy. Your data is safe.",
+    "gate.app_title": "🔓 One quick step",
+    "gate.app_body": "Wallet Buddy is free to use. Join our community channel to unlock it.",
     "gate.join": "📢 Join {name}",
     "gate.subscribed": "✅ I've joined",
-    "gate.youre_in": "You're in! 🎉",
-    "gate.confirmed": "✅ You're in this period's channel. Here's your menu 👇",
+    "gate.youre_in": "✅ You're in! Welcome to Wallet Buddy.",
+    "gate.confirmed": "✅ You're in! Welcome to Wallet Buddy.",
     "gate.get_started": "Tap a button to get started.",
-    "gate.still_not": "Not in this period's channel yet. Join it first, then tap ✅ again.",
+    "gate.still_not": "We couldn't find you in the channel yet. Tap Join, then try again.",
     "gate.alert_not_admin": (
         "⚠️ <b>Channel gate</b>: the bot isn't an administrator of {channels} (or can't see the "
         "channel at all), so it can't check who joined. Users are let through until you add the bot "

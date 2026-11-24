@@ -171,14 +171,27 @@ next five periods with their dates.
   entry. Nothing a user logged is ever touched.
 - **Leaving the current channel:** the bot gets a `chat_member` update (the webhook
   asks Telegram for them), drops that user's cached answer at once, and their next
-  action shows *"You left <channel>. Rejoin to keep using the bot."*
-- **The join screen** says *This period's channel: \<title\> — \<n\> days left*, and has 📢 Join and ✅ I've joined. Without the invite right
-  in that channel there is no Join button, and the admin gets an alert.
+  action shows the "you left" message below.
+- **What users see** (all in `app/strings.py`, under `gate.`) never explains how the
+  gate works: no periods, days, schedule or other channels, only the current
+  channel's name on the Join button.
+
+  | When | Text |
+  | --- | --- |
+  | Bot join message | 👋 Welcome to Wallet Buddy! It's completely free. Just join our channel to get started. |
+  | Mini App join screen | **🔓 One quick step** · Wallet Buddy is free to use. Join our community channel to unlock it. |
+  | Buttons (both) | 📢 Join \<channel\> · ✅ I've joined |
+  | Left the current channel | Looks like you left \<channel\>. Rejoin to keep using Wallet Buddy. Your data is safe. |
+  | "I've joined" but not a member | We couldn't find you in the channel yet. Tap Join, then try again. |
+  | Joined | ✅ You're in! Welcome to Wallet Buddy. |
+
+  Without the invite right in a channel there is no Join button, and the admin
+  gets an alert. The schedule and days left appear only in the admin commands.
 - **If Telegram can't answer**, the last known answer is used, and a user is never
   blocked just because of an error. If the bot can't check a channel at all (not an
   admin, or can't see it), users are let through and the admin is alerted.
-- **The Mini App** follows the same rule: a 403 with the channel, its join link and
-  the days left, and the app shows its own join screen.
+- **The Mini App** follows the same rule: a 403 carrying the join screen's texts and
+  link (from the strings file), which the app shows as they are.
 - **The admin** is never checked.
 
 ### Counting the members the bot brings in
