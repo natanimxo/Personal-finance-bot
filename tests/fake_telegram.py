@@ -21,9 +21,16 @@ def assert_valid_html(text: str):
 
 
 class FakeRequest(BaseRequest):
-    def __init__(self):
+    def __init__(self, rate_limit: int = None):
         self.sent = []          # (endpoint, params) for every message-producing call
         self.member_status = "member"
+        self.member_error = False      # getChatMember fails (Telegram trouble)
+        self.member_checks = 0
+        self.forbidden_chats = set()   # chats that blocked the bot
+        self.rate_limit = rate_limit   # max sendMessage calls in any 1 s window, like Telegram
+        self.too_many = 0              # 429s returned
+        self._send_times = []
+        self.delivered = []            # chat ids that really received a message
 
     async def initialize(self):
         pass
@@ -41,9 +48,23 @@ class FakeRequest(BaseRequest):
         if endpoint == "getMe":
             result = {"id": 1, "is_bot": True, "first_name": "Bot", "username": "bot"}
         elif endpoint == "getChatMember":
+            self.member_checks += 1
+            if self.member_error:
+                return 400, json.dumps({"ok": False, "error_code": 400, "description": "Bad Request: chat not found"}).encode()
             result = {"status": self.member_status, "user": USER}
+        elif endpoint == "sendMessage" and self.rate_limit is not None and self._over_limit():
+            self.too_many += 1
+            return 429, json.dumps({"ok": False, "error_code": 429, "description": "Too Many Requests: retry after 1",
+                                    "parameters": {"retry_after": 1}}).encode()
+        elif endpoint == "sendMessage" and int(params.get("chat_id", 0)) in self.forbidden_chats:
+            return 403, json.dumps({"ok": False, "error_code": 403, "description": "Forbidden: bot was blocked by the user"}).encode()
+        elif endpoint == "sendDocument":
+            self.sent.append((endpoint, params))
+            result = {"message_id": len(self.sent), "date": 0, "chat": CHAT}
         elif endpoint in ("sendMessage", "editMessageText", "editMessageReplyMarkup"):
             self.sent.append((endpoint, params))
+            if endpoint == "sendMessage":
+                self.delivered.append(int(params.get("chat_id", 0)))
             if "text" in params and params.get("parse_mode") == "HTML":
                 assert_valid_html(params["text"])
             result = {"message_id": len(self.sent), "date": 0, "chat": CHAT, "text": params.get("text", "")}
@@ -52,11 +73,21 @@ class FakeRequest(BaseRequest):
         return 200, json.dumps({"ok": True, "result": result}).encode()
 
 
+    def _over_limit(self):
+        import time
+        now = time.monotonic()
+        self._send_times = [t for t in self._send_times if now - t < 1.0]
+        if len(self._send_times) >= self.rate_limit:
+            return True
+        self._send_times.append(now)
+        return False
+
+
 class Harness:
-    def __init__(self, flow_timeout=600):
+    def __init__(self, flow_timeout=600, rate_limit=None):
         from app.main import build_application
 
-        self.request = FakeRequest()
+        self.request = FakeRequest(rate_limit=rate_limit)
         self.app = build_application(request=self.request, flow_timeout=flow_timeout)
         self._n = 0
 

@@ -27,8 +27,11 @@ Everything works through buttons — there are no commands to type besides
   subscribed user who logged something gets a recap of the previous Monday–Sunday.
 - Weeks start Monday 00:00 and months on the 1st at 00:00, both in `APP_TIMEZONE`.
   Summary, budgets and the recap all use the same periods.
-- Admin: with `ADMIN_CHAT_ID` set, `/recap_now` sends the admin a preview of
-  their own recap (nobody else receives anything).
+- Admin commands (only for `ADMIN_CHAT_ID`; anyone else gets no reply):
+  `/recap_now` sends the admin a preview of their own recap, and
+  `/backup_now` makes a backup and sends it to the admin chat.
+- Errors are logged in full, and the admin gets a short alert (at most one a minute).
+- `GET /healthz` on `$PORT` answers 200 when the database responds, 503 when it doesn't.
 
 ## 1. Create the bot
 1. Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, follow the prompts.
@@ -76,6 +79,39 @@ pytest                        # run the tests
    New Volume**, mount it at `/app/data`, and add the variable
    `DB_PATH=/app/data/finance_bot.db`. No code change is needed.
 5. Deploy. Check **Deployments → Logs** for `Bot starting...` to confirm it's live.
+
+## Backups and restore
+- Every day at **03:00** (`APP_TIMEZONE`) the bot writes
+  `backups/expenses-YYYY-MM-DD.db` next to the database, using SQLite's backup
+  API (safe while the bot is running). It keeps the newest 7 daily copies plus
+  one copy for each of the 4 weeks before them.
+- A gzipped copy is also sent to `ADMIN_CHAT_ID`, so a backup exists off the
+  server. `/backup_now` does the same on demand.
+- Before any database migration runs, a `backups/pre-migration-*.db` copy is
+  written first. These are never deleted automatically.
+
+**To restore** (stop the bot first, so nothing writes while the file is replaced):
+1. Get the backup: a `backups/expenses-YYYY-MM-DD.db` file, or the `.db.gz` from the admin chat.
+2. Run `python -m app.services.backup restore <backup file> [target]`. It
+   unzips if needed, removes stale `-wal`/`-shm` files, writes the file to
+   `DB_PATH` (or `target`), and checks it is an expense-bot database.
+   On Railway, use the service's shell, or upload the file to the volume.
+3. Start the bot. Its migrations bring an older backup up to the current schema.
+
+## Running at about 1,000 users
+- Membership checks are cached for 15 minutes per member. A "not a member"
+  answer is never cached, and "✅ I've subscribed" always checks live. If
+  Telegram's check fails, the last known answer is used, so a Telegram hiccup
+  doesn't lock members out.
+- Only calls that send messages are rate-limited (Telegram allows about 30 a
+  second); the recap sends at most 25 a second. Each user's last recap week is
+  stored, so a restart in the middle of a recap never sends anyone a duplicate.
+- A user who blocks the bot is marked inactive and skipped; they become active
+  again the next time they write to it.
+- SQLite runs in WAL mode with a 5 s busy timeout, and every database call runs
+  off the event loop. `python scripts/load_test.py` checks all of this with
+  1,000 simulated users (about 2 minutes, temporary database only).
+- Run exactly **one** replica: SQLite can't be shared between replicas.
 
 ## Cost
 - Telegram Bot API: free

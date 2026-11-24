@@ -5,6 +5,7 @@ each once, recorded in schema_version. They are additive only: nothing here
 drops or rewrites existing data. Before the first pending migration runs on a
 database that already holds tables, a copy is written to backups/ next to it.
 """
+import asyncio
 import logging
 import os
 import re
@@ -23,15 +24,37 @@ def db_path() -> str:
     return config.DB_PATH
 
 
+# Applied on every connection. WAL lets readers work while one writer writes;
+# busy_timeout makes a writer wait up to 5 s for a lock instead of failing.
+PRAGMAS = (
+    "PRAGMA journal_mode=WAL",
+    "PRAGMA busy_timeout=5000",
+    "PRAGMA foreign_keys=ON",
+    "PRAGMA synchronous=NORMAL",
+)
+
+
 @contextmanager
 def get_conn():
-    conn = sqlite3.connect(db_path())
+    conn = sqlite3.connect(db_path(), timeout=5)
     conn.row_factory = sqlite3.Row
+    for pragma in PRAGMAS:
+        conn.execute(pragma)
     try:
         yield conn
         conn.commit()
     finally:
         conn.close()
+
+
+async def db_call(fn, *args, **kwargs):
+    """Run a blocking database function in a worker thread, off the event loop."""
+    return await asyncio.to_thread(fn, *args, **kwargs)
+
+
+def ping() -> bool:
+    with get_conn() as conn:
+        return conn.execute("SELECT 1").fetchone()[0] == 1
 
 
 def _migration_files():
