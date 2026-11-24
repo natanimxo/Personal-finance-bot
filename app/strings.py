@@ -352,9 +352,9 @@ EN.update({
 EN.update({
     "gate.text": (
         "🔒 <b>This month's channel: {name}</b>\n\n"
-        "Your free first month is over. The bot stays free: each month you just need to "
-        "be in that month's channel. It changes every month, and you only need the current one.\n\n"
-        "Join {link}, then tap ✅ I've joined."
+        "The bot is free. Each month you just need to be in that month's channel: it changes "
+        "every 30 days, and you only need the current one.\n\n"
+        "Tap 📢 Join, then ✅ I've joined."
     ),
     "gate.join": "📢 Join {name}",
     "gate.subscribed": "✅ I've joined",
@@ -368,15 +368,26 @@ EN.update({
     ),
     "gate.status_title": "🔐 <b>Channel gate</b>: {state}",
     "gate.status_on": "on",
-    "gate.status_off": "off (GATE_ENABLED is not true; nobody is checked)",
-    "gate.status_channel": "{number}. {name} ({chat_id}): bot admin {admin}, {users} user(s) on it now",
-    "gate.status_admin_yes": "✅",
-    "gate.status_admin_no": "❌",
-    "gate.status_admin_unknown": "❓",
-    "gate.status_none": "No channels set (GATE_CHANNELS, or CHANNEL_ID with CHANNEL_LINK).",
-    "gate.status_free": "In their free first month: {users} user(s)",
-    "gate.status_rules": "Free for {free} days from first contact, then one channel per {period} days, in order.",
-    "gate.status_problem": "⚠️ {problem}",
+    "gate.status_off": "off (nobody is checked; /gate_on to start)",
+    "gate.list_line": "{number}. {title} (<code>{chat_id}</code>) · bot admin {admin}",
+    "gate.list_users": "   {users} user(s) on it now",
+    "gate.admin_yes": "✅",
+    "gate.admin_no": "❌",
+    "gate.admin_unknown": "❓",
+    "gate.list_empty": "No channels yet. Forward a post from a channel to me, then reply to it with /gate_add.",
+    "gate.status_rules": "Each user: channel 1 for their first {period} days, then the next one every {period} days, round the list.",
+    "gate.list_help": "/gate_add (reply to a forwarded channel post) · /gate_remove n · /gate_on · /gate_off",
+    "gate.add_how": "Forward any post from the channel to me, then reply to that forwarded post with /gate_add. (Or: /gate_add -100…)",
+    "gate.add_not_numeric": "Channels are added by their numeric id, like <code>-1001234567890</code>. Forward a post from the channel and reply to it with /gate_add.",
+    "gate.add_already": "That channel is already in the rotation.",
+    "gate.add_full": "The rotation already has {max} channels. Remove one first with /gate_remove n.",
+    "gate.add_not_admin": "❌ I'm not an administrator of {title} (<code>{chat_id}</code>), so I can't check who joined. Add me as an admin there, then try again.",
+    "gate.added": "✅ Added {title} (<code>{chat_id}</code>) as channel {number}.",
+    "gate.remove_how": "Send /gate_remove followed by the channel's number from /gate_list, e.g. <code>/gate_remove 2</code>.",
+    "gate.removed": "🗑️ Removed {title} (<code>{chat_id}</code>). The channels after it moved up.",
+    "gate.turned_on": "🔐 Channel gate is <b>on</b>.",
+    "gate.turned_off": "🔓 Channel gate is <b>off</b>. Nobody is checked.",
+    "gate.on_without_channels": "⚠️ There are no channels yet, so nobody is checked until you add one with /gate_add.",
 })
 
 # --- recaps --------------------------------------------------------------------------------

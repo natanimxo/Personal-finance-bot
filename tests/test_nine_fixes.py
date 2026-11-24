@@ -199,8 +199,10 @@ def test_5_history_labels_and_signs(db):
 
 
 # 6. HTML everywhere -----------------------------------------------------------
-def test_6_gate_with_underscore_link_and_note_with_markup_characters(db, monkeypatch):
-    monkeypatch.setattr(config, "CHANNEL_INVITE_LINK", "https://t.me/my_chan_name")
+def test_6_gate_with_markup_in_the_channel_title_and_note(db, monkeypatch):
+    from app.services import gate
+    odd = gate.Channel(-1001000000001, 1, "my_chan <name> & co", "https://t.me/+my_chan_name")
+    monkeypatch.setattr(gate, "channels", lambda now=None: [odd])
 
     async def scenario():
         async with Harness() as h:
@@ -213,7 +215,7 @@ def test_6_gate_with_underscore_link_and_note_with_markup_characters(db, monkeyp
             h.request.member_status = "left"
             membership_cache.clear()  # a member is trusted for 15 min; simulate that passing
             out = await h.text("/start")
-            assert out[0][1]["parse_mode"] == "HTML" and "my_chan_name" in out.texts[0]
+            assert out[0][1]["parse_mode"] == "HTML" and "my_chan &lt;name&gt; &amp; co" in out.texts[0]
 
     run(scenario())
 

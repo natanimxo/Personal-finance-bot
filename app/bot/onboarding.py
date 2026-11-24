@@ -28,7 +28,7 @@ from app.strings import t
 
 logger = logging.getLogger(__name__)
 
-ADMIN_COMMANDS = ("/recap_now", "/backup_now", "/gate_status")
+ADMIN_COMMANDS = ("/recap_now", "/backup_now", "/gate_")
 
 
 def _grid(buttons, per_row: int):

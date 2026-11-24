@@ -57,8 +57,6 @@ Service → **Variables**:
 | Variable | Value |
 |---|---|
 | `BOT_TOKEN` | already set |
-| `GATE_ENABLED` | `false` for now (no channel checks). Set `true` to turn on the channel gate, after step 4b |
-| `GATE_CHANNELS` | up to 6 channels, e.g. `@chan_one\|https://t.me/chan_one,-1001234567890\|https://t.me/+invite` (or the older one-channel `CHANNEL_ID` + `CHANNEL_LINK`) |
 | `WEBHOOK_SECRET` | 32+ random characters. Generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `ADMIN_CHAT_ID` | your Telegram id from step 1, which gets backups, error alerts and admin commands |
 Don't set `DB_PATH` (the volume default is right) or `PORT` (Railway sets it).
@@ -66,19 +64,24 @@ There is no currency or timezone variable: each user picks their own on /start.
 If an older setup has `APP_TIMEZONE`, `DEFAULT_CURRENCY` or `DEFAULT_ACCOUNTS`,
 they're ignored and can be deleted.
 
-## 4b. Before turning the channel gate on
+## 4b. The channel gate (later)
+
+The gate has no variables: it lives in the database and starts **off**. The six
+channels are already in the rotation (by numeric id). When you want it on:
 
 1. In each channel: **Administrators → Add Admin →** your bot. No special rights are
-   needed; Telegram only shows members to admins, so without this every check fails.
-2. Use the channel's `@username` (or numeric `-100…` id for a private channel) as the
-   id, never an invite link; the invite link goes after the `|`.
-3. Set `GATE_ENABLED=true`. After the redeploy, send `/gate_status` from the admin
-   account: every channel should show **bot admin ✅**. If one doesn't, the admin
-   chat also gets an alert at startup, and that channel lets users through until
-   it's fixed.
+   needed; Telegram only shows members (and lets a bot make invite links) for admins.
+2. Send `/gate_list` from the admin account: every channel should show its title and
+   **bot admin ✅**.
+3. Send `/gate_on`. Any channel where the bot still isn't an admin is reported, and
+   lets users through until it's fixed.
 
-Each user's first 30 days are free; then they need channel 1 for 30 days, channel 2
-for the next 30, and so on. The admin account is never checked.
+To change the rotation: forward a post from a channel to the bot and reply to it
+with `/gate_add`; `/gate_remove n` takes one out. Each user needs channel 1 for
+their first 30 days, then the next channel every 30 days, round the list. The
+admin account is never checked. Old `GATE_ENABLED`, `GATE_CHANNELS`, `CHANNEL_ID`
+/ `REQUIRED_CHANNEL` and `CHANNEL_LINK` / `CHANNEL_INVITE_LINK` variables are
+ignored and can be deleted.
 
 ## 5. Health check and replicas
 
@@ -118,7 +121,7 @@ A daily backup `.db.gz` from the admin chat works the same way.
   location). After that 📋 History shows your old entries and ➕ Add Expense works.
 - The **Open app** button (bottom left of the chat) opens the Mini App.
 - `/backup_now`: a `.db.gz` arrives in the admin chat.
-- `/gate_status`: shows the gate off (or, once on, every channel with bot admin ✅).
+- `/gate_status`: shows the gate off and the six channels (each with bot admin ✅ once added).
 - `/recap_now`: a recap preview arrives.
 
 Then do the **phone test** below.
@@ -171,7 +174,7 @@ Do this on a real phone, once in Telegram's light theme and once in dark.
 | The weekly recap arrives Monday 08:00 in each user's own timezone | Automated: `tests/test_worldwide.py` (Tokyo and New York users), `tests/test_better_recaps.py`. On Railway: `/recap_now`, then wait for Monday |
 | Every user picks their currency and timezone at first start | Automated: `tests/test_worldwide.py`. Phone test |
 | All bot text is in one file | Automated: `tests/test_strings.py` |
-| Channel gate: off by default, free month, monthly rotation, every member status, admin exempt, never mid-entry | Automated: `tests/test_gate.py`. On Railway: `/gate_status` |
+| Channel gate: in the database by numeric id, off until /gate_on, rotation every 30 days per user, every member status, admin exempt, never mid-entry | Automated: `tests/test_gate.py`. On Railway: `/gate_list` |
 | The Mini App opens from the menu button and works in light and dark themes | Phone test |
 | Entries match between the bot and the Mini App | Automated: `tests/test_api.py::test_entry_added_in_the_app_shows_in_bot_history_and_back`. Phone test |
 | Quick entry, editing, past dates and transfers work in both | Automated: `tests/test_quick_entry.py`, `test_edit_entries.py`, `test_past_dates.py`, `test_transfers.py`. Phone test |

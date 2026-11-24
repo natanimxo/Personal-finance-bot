@@ -595,30 +595,6 @@ async def recap_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=config.ADMIN_CHAT_ID, text=text)
 
 
-async def gate_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin only: is the gate on, the channels, whether the bot is admin in each, and
-    how many users are in their free month or on each channel right now."""
-    if not is_admin(update):
-        return
-    from app.bot.membership import channel_name, check_channels
-    from app.services import gate
-
-    lines = [t("gate.status_title", state=t("gate.status_on") if gate.enabled() else t("gate.status_off")), ""]
-    rows = await check_channels(context.bot)
-    counts = await db_call(gate.stats)
-    if not rows:
-        lines.append(t("gate.status_none"))
-    for row, users_now in zip(rows, counts["channels"]):
-        channel = row["channel"]
-        admin = {True: "gate.status_admin_yes", False: "gate.status_admin_no", None: "gate.status_admin_unknown"}
-        lines.append(t("gate.status_channel", number=channel.number, name=esc(channel_name(channel)),
-                       chat_id=esc(channel.chat_id), admin=t(admin[row["admin"]]), users=users_now))
-    lines += ["", t("gate.status_free", users=counts["free"]),
-              t("gate.status_rules", free=gate.FREE_DAYS, period=gate.PERIOD_DAYS)]
-    lines += [t("gate.status_problem", problem=esc(p)) for p in gate.problems()]
-    await update.effective_message.reply_text("\n".join(lines))
-
-
 async def backup_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin only: make a backup now and send it to ADMIN_CHAT_ID."""
     if not is_admin(update):

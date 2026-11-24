@@ -51,7 +51,7 @@ def test_admin_restores_the_rescued_file(fresh_volume, rescued):
         async with Harness() as h:
             out = await h.document(rescued, "finance_bot.db", "/restore")
             assert "Restored: 3 entries, 2 users, 1 budgets" in out.texts[-1]
-            assert "Migrations applied: 11" in out.texts[-1]
+            assert "Migrations applied: 12" in out.texts[-1]
 
             # Everything is there, upgraded: exact cents, dates, accounts, default.
             e = transactions.list_recent(UID)

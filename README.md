@@ -3,8 +3,8 @@
 Track spending and income in Telegram: a **bot** for quick logging, and a
 **Mini App** (a web app that opens inside Telegram) with charts, filters and
 editing. Both share one database and one set of rules, so they never disagree.
-An optional [channel gate](#the-channel-gate) can ask users to join one of your
-channels each month, after a free first month. It works **anywhere in the world**: each
+An optional [channel gate](#the-channel-gate) can ask users to be in one of your
+channels each month, rotating through a list. It works **anywhere in the world**: each
 user picks their own currency and timezone the first time they start the bot.
 It runs as **one service on Railway**.
 
@@ -83,8 +83,8 @@ Admin only (the `ADMIN_CHAT_ID` account; anyone else gets no reply):
 
 - `/recap_now`: a preview of your own weekly recap (`/recap_now month` for the monthly one)
 - `/backup_now`: make a backup and send it to the admin chat
-- `/gate_status`: the channel gate: on or off, each channel and whether the bot is an admin there, and how many
-  users are in their free month or on each channel
+- `/gate_list`, `/gate_status`, `/gate_add`, `/gate_remove n`, `/gate_on`, `/gate_off`: manage the
+  [channel gate](#the-channel-gate)
 - **Restore:** send a `.db` or `.db.gz` file with the caption /restore (see [Backups and restore](#backups-and-restore))
 
 ### Messages the bot sends by itself
@@ -122,30 +122,42 @@ buttons. Try it locally without Telegram: `python scripts/preview_app.py`.
 
 ## The channel gate
 
-Off unless `GATE_ENABLED=true`; while it's off, nobody is checked.
+Users must be in one of your channels, a different one every 30 days. Everything is
+kept in the database and managed by the admin (`ADMIN_CHAT_ID`) from the bot; there
+are no environment variables for it.
 
-- **Channels:** `GATE_CHANNELS` lists up to 6, comma-separated, each as
-  `@username|join link`, or `-100…numeric id|invite link` for a private channel.
-  The id must be the `@username` or the numeric id, never an invite link. The older
-  `CHANNEL_ID` + `CHANNEL_LINK` (or `REQUIRED_CHANNEL` + `CHANNEL_INVITE_LINK`) still
-  work as a list of one.
-- **Free first month:** each user's first 30 days, counted from their first contact
-  with the bot (or, for users from before the gate, from their next message), need
-  no channel.
-- **Rotation, per user:** days 31–60 → channel 1, days 61–90 → channel 2, and so on,
-  round the list again. A user only needs to be in the current month's channel.
-- **Joined means** `creator`, `administrator` or `member`, or `restricted` while
-  still a member.
+- **Off** until you send `/gate_on`; `/gate_off` stops all checks again.
+- **Channels** are stored by **numeric chat id only** (`-100…`), never by @username,
+  so renaming a channel or the bot breaks nothing. Titles come from Telegram
+  (`getChat`) and join links are created by the bot itself
+  (`createChatInviteLink`, each valid 48 hours); both are cached for 24 hours.
+- **The bot must be an administrator of every channel** (no special rights needed):
+  Telegram only shows a channel's members, and only lets a bot make invite links,
+  when it's an admin.
+- **Rotation, per user:** from a user's first contact with the bot, days 1–30 need
+  channel 1, days 31–60 channel 2, and so on round the list, automatically. A user
+  only needs the current channel. There is no free period.
+- **Joined means** `creator`, `administrator` or `member`, or `restricted` while still
+  a member.
 - **When it's checked:** only when a user starts something (a menu screen, a
   command, the start of an entry, a quick entry, a Mini App screen), never in the
   middle of an entry. A "member" answer is cached for 15 minutes.
-- **The join screen** names this month's channel, explains it changes monthly, and
-  has 📢 Join and ✅ I've joined (which checks again at once).
-- **The admin** (`ADMIN_CHAT_ID`) is never checked.
-- **The bot must be an administrator of every channel** (no special rights needed):
-  Telegram only shows a channel's members to its admins. At startup, with the gate
-  on, the admin gets an alert for any channel where it isn't. Until it's fixed,
-  that channel's check lets users through rather than locking everyone out.
+- **The join screen** names the current channel, explains that it changes every 30
+  days, and has 📢 Join (the bot's invite link) and ✅ I've joined.
+- **The admin** is never checked.
+- **If the bot isn't an admin** of a channel, that channel's check lets users
+  through instead of locking everyone out, and the admin gets an alert (also at
+  startup and on `/gate_on`).
+
+Admin commands:
+
+| Command | What it does |
+| --- | --- |
+| `/gate_add` | Forward any post from the channel to the bot, then reply to it with `/gate_add`. The bot reads the channel's id, checks it's an admin there, and adds it to the end of the rotation (up to 6). `/gate_add -100…` works too |
+| `/gate_remove n` | Takes channel *n* out; the ones after it move up |
+| `/gate_list` | The rotation: order, title, id, whether the bot is admin, users on each now |
+| `/gate_status` | The same, plus whether the gate is on |
+| `/gate_on` / `/gate_off` | Start or stop checking |
 
 ## Configuration
 
@@ -155,10 +167,6 @@ Set these on Railway (Variables) or, locally, in a `.env` file (see
 | Variable | Required | Meaning |
 | --- | --- | --- |
 | `BOT_TOKEN` | yes | Token from @BotFather |
-| `GATE_ENABLED` | no | `true` turns on the [channel gate](#the-channel-gate). Default `false`: no channel checks |
-| `GATE_CHANNELS` | with the gate | Up to 6 channels: `@username\|https://t.me/username,-1001234567890\|https://t.me/+invite`. **Add the bot as an admin of each** |
-| `CHANNEL_ID` | no | One channel instead of `GATE_CHANNELS`: `@username` or numeric `-100…` id (old name `REQUIRED_CHANNEL` still works) |
-| `CHANNEL_LINK` | no | Its join link (old name `CHANNEL_INVITE_LINK` still works) |
 | `WEBHOOK_SECRET` | in production | 32+ random characters; Telegram sends it with every update |
 | `PUBLIC_URL` | for the Mini App | Base https URL. Default: `https://$RAILWAY_PUBLIC_DOMAIN` |
 | `ADMIN_CHAT_ID` | no | Your Telegram id: backups, error alerts, admin commands |
@@ -172,7 +180,7 @@ Set these on Railway (Variables) or, locally, in a `.env` file (see
 python -m venv venv
 source venv/bin/activate             # Windows: venv\Scripts\activate
 pip install -r requirements-dev.txt
-cp .env.example .env                 # fill in BOT_TOKEN (the channel gate is off by default)
+cp .env.example .env                 # fill in BOT_TOKEN (the channel gate is off until /gate_on)
 echo USE_POLLING=true >> .env        # no webhook or public URL needed locally
 python -m app.main                   # the bot, plus the API and Mini App on http://localhost:8000
 pytest                               # the tests
