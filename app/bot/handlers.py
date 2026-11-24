@@ -47,18 +47,36 @@ def clear_pending(context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 @require_subscription
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.effective_message.reply_text(welcome_text(), reply_markup=main_menu_keyboard())
+    await send_welcome(context.bot, update.effective_chat.id)
 
 
-def welcome_text() -> str:
-    return t("start.welcome", add=BTN_ADD, add_income=BTN_ADD_INCOME, history=BTN_HISTORY, summary=BTN_SUMMARY,
-             budgets=BTN_BUDGETS, accounts=BTN_ACCOUNTS, settings=BTN_SETTINGS)
+async def send_welcome(bot, chat_id: int):
+    """The welcome: for /start (new and returning users) and after the first setup.
+
+    A message can carry only one kind of keyboard, so with a Mini App address the
+    welcome has the inline 📱 Open App button (the same URL as the menu button) and
+    a small second message keeps the main reply keyboard on screen. Without an
+    address (local development) the welcome itself carries the reply keyboard."""
+    from telegram import WebAppInfo
+
+    from app.web.server import mini_app_url
+
+    url = mini_app_url()
+    if not url:
+        await bot.send_message(chat_id=chat_id, text=t("start.welcome"), reply_markup=main_menu_keyboard())
+        return
+    await bot.send_message(
+        chat_id=chat_id, text=t("start.welcome"),
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("start.open_app"), web_app=WebAppInfo(url=url))]]))
+    await bot.send_message(chat_id=chat_id, text=t("menu.hint"), reply_markup=main_menu_keyboard())
 
 
 @require_subscription
 async def help_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(
-        t("help.text", add=BTN_ADD, add_income=BTN_ADD_INCOME, cancel=BTN_CANCEL), reply_markup=main_menu_keyboard())
+        t("help.text", add=BTN_ADD, add_income=BTN_ADD_INCOME, history=BTN_HISTORY, summary=BTN_SUMMARY,
+          budgets=BTN_BUDGETS, accounts=BTN_ACCOUNTS, settings=BTN_SETTINGS, cancel=BTN_CANCEL),
+        reply_markup=main_menu_keyboard())
 
 
 # ---------------------------------------------------------------------------
