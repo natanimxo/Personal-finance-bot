@@ -95,15 +95,29 @@ class FakeRequest(BaseRequest):
         return False
 
 
+# What the test user picked at first start, unless a test says otherwise (setup=None
+# leaves them a brand-new user, who gets the setup questions first).
+TEST_SETUP = ("KES", "Africa/Nairobi")
+
+
 class Harness:
-    def __init__(self, flow_timeout=600, rate_limit=None):
+    def __init__(self, flow_timeout=600, rate_limit=None, setup=TEST_SETUP):
         from app.main import build_application
 
         self.request = FakeRequest(rate_limit=rate_limit)
         self.app = build_application(request=self.request, flow_timeout=flow_timeout)
         self._n = 0
+        self.setup = setup
 
     async def __aenter__(self):
+        if self.setup:
+            from app.db import init_db
+            from app.services import prefs
+
+            init_db()
+            p = prefs.get_prefs(UID)
+            prefs.set_prefs(UID, currency=None if p["currency"] else self.setup[0],
+                            timezone=None if p["timezone"] else self.setup[1])
         await self.app.initialize()
         await self.app.start()
         return self
@@ -133,6 +147,12 @@ class Harness:
                                 "file_size": len(content)}}
         if caption.startswith("/"):
             message["caption_entities"] = [{"type": "bot_command", "offset": 0, "length": len(caption.split()[0])}]
+        return await self._process({"update_id": n, "message": message})
+
+    async def location(self, latitude: float, longitude: float):
+        n = self._next()
+        message = {"message_id": 1000 + n, "date": 0, "chat": CHAT, "from": USER,
+                   "location": {"latitude": latitude, "longitude": longitude}}
         return await self._process({"update_id": n, "message": message})
 
     async def tap(self, data):

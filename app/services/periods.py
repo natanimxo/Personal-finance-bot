@@ -1,17 +1,84 @@
-"""Week and month boundaries, in APP_TIMEZONE. Summary, budgets and the recap all use these.
+"""Week and month boundaries in the *user's* timezone. Summary, budgets, the recap
+and recurring entries all use these.
+
+Each user picks a timezone when they start (stored in user_prefs.timezone). The
+zone in force is a context variable: the bot sets it for the user behind each
+update, the API for the user behind each request, and jobs for each user they
+handle. Service functions that take a user_id are wrapped with @in_user_zone, so
+they use that user's zone whoever calls them. With no user (a server job such as
+the backup) the zone is UTC.
 
 occurred_at and created_at are stored as naive UTC ISO text, so a boundary is
 converted with to_db() before it is compared in SQL.
 """
+import functools
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from app import config
+FALLBACK_ZONE = "UTC"
+
+# (user_id or None, IANA zone name) currently in force.
+_zone: ContextVar = ContextVar("zone", default=(None, FALLBACK_ZONE))
 
 
 def tz() -> ZoneInfo:
-    return ZoneInfo(config.APP_TIMEZONE)
+    return ZoneInfo(_zone.get()[1])
+
+
+def zone_name() -> str:
+    return _zone.get()[1]
+
+
+def set_zone(name: str, user_id: int = None):
+    """Make `name` the zone for the rest of this task (or thread). Returns a reset token."""
+    return _zone.set((user_id, name or FALLBACK_ZONE))
+
+
+@contextmanager
+def use_zone(name: str, user_id: int = None):
+    token = set_zone(name, user_id)
+    try:
+        yield
+    finally:
+        _zone.reset(token)
+
+
+def user_zone_name(user_id: int) -> str:
+    """The user's saved timezone, or UTC if they haven't picked one."""
+    from app.db import get_conn
+
+    with get_conn() as conn:
+        row = conn.execute("SELECT timezone FROM user_prefs WHERE user_id = ?", (user_id,)).fetchone()
+    return (row["timezone"] if row and row["timezone"] else None) or FALLBACK_ZONE
+
+
+def activate_user(user_id: int) -> str:
+    """Bot and API: this update / request is the user's, so use their zone from here on."""
+    name = user_zone_name(user_id)
+    set_zone(name, user_id)
+    return name
+
+
+@contextmanager
+def for_user(user_id: int):
+    """The user's zone for the duration (a no-op when it is already in force)."""
+    if _zone.get()[0] == user_id:
+        yield
+        return
+    with use_zone(user_zone_name(user_id), user_id):
+        yield
+
+
+def in_user_zone(fn):
+    """For service functions whose first argument is a user_id."""
+    @functools.wraps(fn)
+    def wrapper(user_id, *args, **kwargs):
+        with for_user(user_id):
+            return fn(user_id, *args, **kwargs)
+    return wrapper
 
 
 def now_local(now: datetime = None) -> datetime:
@@ -107,4 +174,6 @@ def parse_user_date(text: str, now: datetime = None) -> date:
             return d.replace(year=d.year - 1) if not yr and d > base else d
     except (KeyError, ValueError):
         pass
-    raise ValueError("Use a date like 22/11 or 2026-11-22.")
+    from app.strings import t
+
+    raise ValueError(t("error.date_format"))

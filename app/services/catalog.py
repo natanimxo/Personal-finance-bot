@@ -24,6 +24,10 @@ INCOME_CATEGORIES = [
     ("other", "📦 Other"),
 ]
 
+# Offered first when a user picks a currency (bot and Mini App); any 3-letter code works.
+COMMON_CURRENCIES = ["USD", "EUR", "GBP", "INR", "CNY", "JPY", "CAD", "AUD", "BRL", "MXN", "NGN", "KES",
+                     "ZAR", "EGP", "ETB", "GHS", "PKR", "BDT", "IDR", "PHP", "TRY", "AED", "SAR", "RUB"]
+
 TYPES = ("expense", "income")
 ACCOUNT_LABELS = dict(ACCOUNTS)
 CATEGORY_LABELS = dict(CATEGORIES)
@@ -51,4 +55,5 @@ def as_json():
             "income": [{"key": k, "label": v} for k, v in INCOME_CATEGORIES],
         },
         "accounts": [{"key": k, "label": v} for k, v in ACCOUNTS],
+        "currencies": COMMON_CURRENCIES,
     }

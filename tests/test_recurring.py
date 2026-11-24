@@ -109,14 +109,14 @@ def test_bot_repeat_list_stop(db):
 
 
 def test_daily_job_logs_and_messages_with_undo(db):
-    recurring.create_from_entry(UID, entry_on(periods.today() - timedelta(days=7), amount=50, category="food",
+    # 8 days ago, weekly: the next copy was due yesterday, so it is due whatever the hour now.
+    recurring.create_from_entry(UID, entry_on(periods.today() - timedelta(days=8), amount=50, category="food",
                                               note="Gym snack")["id"], "weekly")
 
     async def scenario():
         async with Harness() as h:
             job = next(j for j in h.app.job_queue.jobs() if j.name == "recurring")
-            from zoneinfo import ZoneInfo
-            assert job.next_t.astimezone(ZoneInfo(config.APP_TIMEZONE)).strftime("%H:%M") == "06:00"
+            assert job.job.trigger.interval == timedelta(hours=1)                   # hourly, per user's 06:00
             h.request.sent.clear()
             await job.callback(SimpleNamespace(bot=h.app.bot))
             msgs = [p for e, p in h.request.sent if e == "sendMessage"]

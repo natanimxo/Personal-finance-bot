@@ -7,9 +7,9 @@ from app.bot.keyboards import BTN_CANCEL, cancel_keyboard, esc, main_menu_keyboa
 from app.db import db_call
 from app.services import categories
 from app.services.validation import ValidationError
+from app.strings import t
 
 CATEGORY_NAME = 70
-TITLES = {"expense": "Expense", "income": "Income"}
 
 
 async def screen(user_id: int, type_: str):
@@ -17,18 +17,20 @@ async def screen(user_id: int, type_: str):
     visible = [c for c in items if not c["hidden"]]
     hidden = [c for c in items if c["hidden"]]
     other = "income" if type_ == "expense" else "expense"
-    lines = [f"🏷️ <b>{TITLES[type_]} categories</b>", ""] + [f"• {esc(c['name'])}" for c in visible]
+    lines = [t("categories.title", kind=t(f"categories.{type_}")), ""] + \
+        [t("categories.line", name=esc(c["name"])) for c in visible]
     if hidden:
-        lines += ["", "<b>Hidden</b> (past entries still count in summaries):"] + [f"• {esc(c['name'])}" for c in hidden]
+        lines += ["", t("categories.hidden")] + [t("categories.line", name=esc(c["name"])) for c in hidden]
     rows = [
-        [InlineKeyboardButton("➕ Add", callback_data=f"cat:add:{type_}"),
-         InlineKeyboardButton("✏️ Rename", callback_data=f"cat:pick:ren:{type_}"),
-         InlineKeyboardButton("🙈 Hide", callback_data=f"cat:pick:hide:{type_}")],
+        [InlineKeyboardButton(t("categories.add_button"), callback_data=f"cat:add:{type_}"),
+         InlineKeyboardButton(t("categories.rename_button"), callback_data=f"cat:pick:ren:{type_}"),
+         InlineKeyboardButton(t("categories.hide_button"), callback_data=f"cat:pick:hide:{type_}")],
     ]
     if hidden:
-        rows.append([InlineKeyboardButton("👁️ Show a hidden one", callback_data=f"cat:pick:show:{type_}")])
-    rows.append([InlineKeyboardButton(f"↔️ {TITLES[other]} categories", callback_data=f"cat:list:{other}"),
-                 InlineKeyboardButton("↩️ Settings", callback_data="set:back")])
+        rows.append([InlineKeyboardButton(t("categories.show_button"), callback_data=f"cat:pick:show:{type_}")])
+    rows.append([InlineKeyboardButton(t("categories.other_button", kind=t(f"categories.{other}")),
+                                      callback_data=f"cat:list:{other}"),
+                 InlineKeyboardButton(t("categories.settings_button"), callback_data="set:back")])
     return "\n".join(lines), InlineKeyboardMarkup(rows)
 
 
@@ -45,10 +47,10 @@ async def pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, _, action, type_ = query.data.split(":")
     items = await db_call(categories.list_categories, update.effective_user.id, type_, True)
     wanted = [c for c in items if c["hidden"] == (action == "show")]
-    titles = {"ren": "✏️ Rename which category?", "hide": "🙈 Hide which category? Its past entries still count.",
-              "show": "👁️ Show which category again?"}
+    titles = {"ren": t("categories.which_rename"), "hide": t("categories.which_hide"),
+              "show": t("categories.which_show")}
     rows = [[InlineKeyboardButton(c["name"], callback_data=f"cat:{action}:{type_}:{c['key']}")] for c in wanted]
-    rows.append([InlineKeyboardButton("↩️ Back", callback_data=f"cat:list:{type_}")])
+    rows.append([InlineKeyboardButton(t("common.back"), callback_data=f"cat:list:{type_}")])
     await query.answer()
     await query.edit_message_text(titles[action], reply_markup=InlineKeyboardMarkup(rows))
 
@@ -61,7 +63,7 @@ async def hide_or_show(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValidationError as e:
         await query.answer(str(e), show_alert=True)
         return
-    await query.answer("Hidden" if action == "hide" else "Visible again")
+    await query.answer(t("categories.hidden_toast") if action == "hide" else t("categories.visible_toast"))
     text, kb = await screen(update.effective_user.id, type_)
     await query.edit_message_text(text, reply_markup=kb)
 
@@ -76,11 +78,11 @@ async def name_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     if key:
         current = await db_call(categories.label, update.effective_user.id, type_, key)
-        prompt = f"✏️ New name for {esc(current)}? Its past entries keep it. Emoji welcome, e.g. <i>🏠 Rent</i>."
+        prompt = t("categories.rename_prompt", name=esc(current))
     else:
-        prompt = f"➕ Name the new {type_} category, e.g. <i>🏠 Rent</i> or <i>📚 School fees</i>."
+        prompt = t(f"categories.new_prompt_{type_}")
     await query.edit_message_text(prompt)
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"(Tap {BTN_CANCEL} to stop.)",
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=t("common.tap_cancel", cancel=BTN_CANCEL),
                                    reply_markup=cancel_keyboard())
     return CATEGORY_NAME
 
@@ -93,12 +95,12 @@ async def name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if naming["key"]:
             c = await db_call(categories.rename_category, update.effective_user.id, naming["type"], naming["key"],
                               update.message.text)
-            done = f"✅ Renamed to {esc(c['name'])}."
+            done = t("categories.renamed", name=esc(c["name"]))
         else:
             c = await db_call(categories.add_category, update.effective_user.id, naming["type"], update.message.text)
-            done = f"✅ Added {esc(c['name'])}."
+            done = t("categories.added", name=esc(c["name"]))
     except ValidationError as e:
-        await update.message.reply_text(f"{esc(e)} Try another name, or tap {BTN_CANCEL}.")
+        await update.message.reply_text(t("common.try_another_name", error=esc(e), cancel=BTN_CANCEL))
         return CATEGORY_NAME
     context.user_data.pop("category_naming", None)
     await update.message.reply_text(done, reply_markup=main_menu_keyboard())

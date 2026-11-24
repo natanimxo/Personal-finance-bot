@@ -19,8 +19,9 @@ from app.services import backup, periods, recap, transactions, users
 from tests.fake_telegram import UID, Harness, run
 
 REPO = Path(__file__).resolve().parent.parent
-WEDNESDAY = datetime(2026, 11, 25, 9, tzinfo=timezone.utc)
-LAST_WEEK = "2026-11-18T09:00:00"  # Wed 18 Nov, inside the week before WEDNESDAY
+# Monday 08:00 UTC: when the recap is due for these users, who have no timezone yet (UTC).
+MONDAY = datetime(2026, 11, 23, 8, tzinfo=timezone.utc)
+LAST_WEEK = "2026-11-18T09:00:00"  # Wed 18 Nov, inside the week before MONDAY
 
 
 @pytest.fixture
@@ -132,8 +133,8 @@ def test_recap_is_not_sent_twice_in_one_week(db):
 
     async def scenario():
         async with Harness() as h:
-            first = await recap.run_recap(recap_context(h), now=WEDNESDAY, rate=1000)
-            again = await recap.run_recap(recap_context(h), now=WEDNESDAY, rate=1000)
+            first = await recap.run_recap(recap_context(h), now=MONDAY, rate=1000)
+            again = await recap.run_recap(recap_context(h), now=MONDAY, rate=1000)
             assert first["sent"] == 3 and again["sent"] == 0
             assert sorted(h.request.delivered) == [1, 2, 3]
 
@@ -143,13 +144,13 @@ def test_recap_is_not_sent_twice_in_one_week(db):
 def test_restart_mid_recap_continues_without_duplicates(db):
     for uid in range(1, 7):
         add_last_week_entry(uid)
-    week_key = periods.previous_week(WEDNESDAY)[0].date().isoformat()
+    week_key = periods.previous_week(MONDAY)[0].date().isoformat()
     for uid in (1, 2, 3):              # the run that crashed had reached user 3
         users.mark_recap_sent(uid, week_key)
 
     async def scenario():
         async with Harness() as h:
-            stats = await recap.run_recap(recap_context(h), now=WEDNESDAY, rate=1000)
+            stats = await recap.run_recap(recap_context(h), now=MONDAY, rate=1000)
             assert stats["sent"] == 3 and sorted(h.request.delivered) == [4, 5, 6]
 
     run(scenario())
@@ -162,11 +163,11 @@ def test_blocked_user_is_marked_inactive_and_comes_back(db):
     async def scenario():
         async with Harness() as h:
             h.request.forbidden_chats = {UID}
-            stats = await recap.run_recap(recap_context(h), now=WEDNESDAY, rate=1000)
+            stats = await recap.run_recap(recap_context(h), now=MONDAY, rate=1000)
             assert stats["blocked"] == 1 and stats["sent"] == 1
             assert not users.is_active(UID)
 
-            next_week = WEDNESDAY + timedelta(days=7)
+            next_week = MONDAY + timedelta(days=7)
             stats = await recap.run_recap(recap_context(h), now=next_week, rate=1000)
             assert stats["blocked"] == 0  # skipped, not even tried
 
@@ -184,7 +185,7 @@ def test_recap_stays_under_the_rate_limit(db):
     async def scenario():
         async with Harness(rate_limit=30) as h:
             started = time.monotonic()
-            stats = await recap.run_recap(recap_context(h), now=WEDNESDAY, rate=25)
+            stats = await recap.run_recap(recap_context(h), now=MONDAY, rate=25)
             elapsed = time.monotonic() - started
             assert stats["sent"] == 60
             assert h.request.too_many == 0
@@ -269,17 +270,16 @@ def test_gzip_copy_round_trips(db):
 
 
 def test_backup_and_recap_jobs_are_scheduled(db):
-    from zoneinfo import ZoneInfo
-
     h = Harness()
 
     async def jobs():
         async with h:
-            return {j.name: j.next_t.astimezone(ZoneInfo(config.APP_TIMEZONE)) for j in h.app.job_queue.jobs()}
+            return {j.name: j.next_t.astimezone(timezone.utc) for j in h.app.job_queue.jobs()}
 
     scheduled = run(jobs())
-    assert scheduled["daily_backup"].strftime("%H:%M") == "03:00"
-    assert scheduled["weekly_recap"].strftime("%A %H:%M") == "Monday 08:00"
+    assert scheduled["daily_backup"].strftime("%H:%M") == "03:00"             # UTC
+    assert scheduled["recap"].strftime("%M:%S") == "00:00"                    # every hour, on the hour
+    assert scheduled["recurring"].strftime("%M:%S") == "01:00"
 
 
 # --- Errors and health -------------------------------------------------------------

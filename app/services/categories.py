@@ -9,6 +9,7 @@ import re
 from app.db import get_conn
 from app.services import catalog
 from app.services.validation import ValidationError, check_type
+from app.strings import t
 
 MAX_PER_TYPE = 20
 MAX_NAME = 30
@@ -53,7 +54,8 @@ def label(user_id: int, type_: str, key: str) -> str:
 
 def check_active(user_id: int, type_: str, key: str) -> str:
     if key not in {c["key"] for c in list_categories(user_id, type_)}:
-        raise ValidationError(f"Unknown {type_} category.", "category")
+        raise ValidationError(t(f"error.unknown_category_{type_}" if type_ in catalog.TYPES else "error.unknown_category"),
+                              "category")
     return key
 
 
@@ -64,19 +66,19 @@ def _plain(name: str) -> str:
 def _check_name(user_id: int, type_: str, name: str, except_key: str = None) -> str:
     name = " ".join((name or "").split())
     if not name:
-        raise ValidationError("Give the category a name.", "name")
+        raise ValidationError(t("error.category_name_empty"), "name")
     if len(name) > MAX_NAME:
-        raise ValidationError(f"Category names can be up to {MAX_NAME} characters.", "name")
+        raise ValidationError(t("error.category_name_length", max=MAX_NAME), "name")
     for c in list_categories(user_id, type_, include_hidden=True):
         if c["key"] != except_key and _plain(c["name"]) == _plain(name):
-            raise ValidationError("You already have a category with that name.", "name")
+            raise ValidationError(t("error.category_name_taken"), "name")
     return name
 
 
 def add_category(user_id: int, type_: str, name: str) -> dict:
     existing = list_categories(user_id, type_, include_hidden=True)
     if len(existing) >= MAX_PER_TYPE:
-        raise ValidationError(f"You can have up to {MAX_PER_TYPE} {type_} categories.", "name")
+        raise ValidationError(t(f"error.category_limit_{type_}", max=MAX_PER_TYPE), "name")
     name = _check_name(user_id, type_, name)
     base = re.sub(r"[^a-z0-9]+", "_", _plain(name)).strip("_")[:20] or "category"
     taken = {c["key"] for c in existing} | {k for k, _ in catalog.categories_for(type_)} | {"transfer"}
@@ -96,21 +98,21 @@ def rename_category(user_id: int, type_: str, key: str, name: str) -> dict:
     with get_conn() as conn:
         if not conn.execute("UPDATE categories SET name = ? WHERE user_id = ? AND type = ? AND key = ?",
                             (name, user_id, type_, key)).rowcount:
-            raise ValidationError("Unknown category.", "category")
+            raise ValidationError(t("error.unknown_category"), "category")
     return {"key": key, "name": name}
 
 
 def set_hidden(user_id: int, type_: str, key: str, hidden: bool = True):
     visible = list_categories(user_id, type_)
     if hidden and [c["key"] for c in visible] == [key]:
-        raise ValidationError("Keep at least one category visible.", "category")
+        raise ValidationError(t("error.last_category"), "category")
     with get_conn() as conn:
         if not conn.execute("UPDATE categories SET hidden = ? WHERE user_id = ? AND type = ? AND key = ?",
                             (int(hidden), user_id, type_, key)).rowcount:
-            raise ValidationError("Unknown category.", "category")
+            raise ValidationError(t("error.unknown_category"), "category")
 
 
 def as_json(user_id: int) -> dict:
     """{"expense": [{key, label, hidden}], "income": [...]}, hidden included (the app filters)."""
-    return {t: [{"key": c["key"], "label": c["name"], "hidden": c["hidden"]}
-                for c in list_categories(user_id, t, include_hidden=True)] for t in catalog.TYPES}
+    return {kind: [{"key": c["key"], "label": c["name"], "hidden": c["hidden"]}
+                   for c in list_categories(user_id, kind, include_hidden=True)] for kind in catalog.TYPES}

@@ -1,4 +1,5 @@
 python-telegram-bot[job-queue,rate-limiter]==21.4
 tzdata==2025.2
+tzfpy==2.1.2
 fastapi==0.115.0
 uvicorn==0.30.6

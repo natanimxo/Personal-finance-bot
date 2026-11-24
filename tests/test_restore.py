@@ -51,7 +51,7 @@ def test_admin_restores_the_rescued_file(fresh_volume, rescued):
         async with Harness() as h:
             out = await h.document(rescued, "finance_bot.db", "/restore")
             assert "Restored: 3 entries, 2 users, 1 budgets" in out.texts[-1]
-            assert "Migrations applied: 9" in out.texts[-1]
+            assert "Migrations applied: 10" in out.texts[-1]
 
             # Everything is there, upgraded: exact cents, dates, accounts, default.
             e = transactions.list_recent(UID)
@@ -60,8 +60,13 @@ def test_admin_restores_the_rescued_file(fresh_volume, rescued):
             assert e[0]["occurred_at"] == "2026-11-02T08:00:00"
             assert accounts.get_default_account(UID) == "mobile_money"
             assert accounts.choices(UID)[-1] == ("mobile_money", "📱 Mobile Wallets")   # they keep their 4
+            # The old database had no currency or timezone: existing users are asked once.
             out = await h.text(BTN_HISTORY)
-            assert "groceries" in out.texts[0]
+            assert "Which currency" in out.texts[0]
+            await h.tap("ob:cur:KES")
+            await h.text("Nairobi")
+            out = await h.text(BTN_HISTORY)
+            assert "groceries" in out.texts[0] and "KES" in out.texts[0]
 
     run(scenario())
     backups = os.listdir(fresh_volume.parent / "backups")

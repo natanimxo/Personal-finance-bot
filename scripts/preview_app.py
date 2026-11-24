@@ -21,19 +21,20 @@ os.environ.update(BOT_TOKEN="1:preview-token", CHANNEL_ID="@preview", CHANNEL_LI
 import uvicorn  # noqa: E402
 
 from app.db import get_conn, init_db  # noqa: E402
-from app.services import accounts, budgets, transactions, users  # noqa: E402
+from app.services import accounts, budgets, prefs, transactions, users  # noqa: E402
 from app.web.auth import make_init_data  # noqa: E402
 from app.web.server import create_app  # noqa: E402
 from tests.fake_telegram import UID, Harness  # noqa: E402
 
 init_db()
 users.register_user(UID)
+prefs.set_prefs(UID, "USD", timezone="UTC")   # what the demo user picked at first start
 accounts.set_default_account(UID, "mobile_money")
 budgets.set_budget(UID, "food", 3000)
 budgets.set_budget(UID, "transport", 1000)
 demo = [  # (amount, category, type, account, note, days ago)
-    (45000, "salary", "income", "bank", "November salary", 6), (1200, "food", "expense", "mobile_money", "Groceries <Naivas>", 0),
-    (350, "transport", "expense", "mobile_money", "Matatu to town", 0), (2500, "bills", "expense", "bank", "KPLC tokens", 1),
+    (45000, "salary", "income", "bank", "November salary", 6), (1200, "food", "expense", "mobile_money", "Groceries <Market>", 0),
+    (350, "transport", "expense", "mobile_money", "Bus to town", 0), (2500, "bills", "expense", "bank", "Electricity", 1),
     (800, "fun", "expense", "cash", "Movie night", 2), (650, "food", "expense", "cash", "Lunch", 2),
     (5000, "freelance", "income", "mobile_money", "Logo design", 3), (420, "transport", "expense", "mobile_money", "", 4),
     (3200, "shopping", "expense", "card", "Shoes", 5), (900, "food", "expense", "mobile_money", "Dinner", 9),

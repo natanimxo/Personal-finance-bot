@@ -19,6 +19,7 @@ from app.bot.keyboards import (
 )
 from app.bot.errors import on_error
 from app.bot.membership import recheck_sub_callback, track_activity
+from app.bot.onboarding import gate as setup_gate
 
 FLOW_TIMEOUT = 10 * 60  # seconds an unfinished entry stays open
 
@@ -90,10 +91,12 @@ def build_flows(timeout: int = FLOW_TIMEOUT) -> ConversationHandler:
 
 
 def register_handlers(app, flow_timeout: int = FLOW_TIMEOUT):
-    # Group -1 runs before everything else: marks the sender active (a user who
-    # blocked the bot and comes back gets recaps again).
+    # Group -2 runs before everything else: marks the sender active (a user who
+    # blocked the bot and comes back gets recaps again) and switches to their timezone.
+    # Group -1: first-start setup (currency, timezone) and the timezone picker.
     from telegram import Update
-    app.add_handler(TypeHandler(Update, track_activity), group=-1)
+    app.add_handler(TypeHandler(Update, track_activity), group=-2)
+    app.add_handler(TypeHandler(Update, setup_gate), group=-1)
     app.add_error_handler(on_error)
 
     # The flow goes first: a menu button tapped mid-flow must reach its fallback

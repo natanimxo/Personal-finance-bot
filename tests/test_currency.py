@@ -22,8 +22,10 @@ def db(fresh_db):
     init_db()
 
 
-def test_new_users_get_the_default_currency(db):
-    assert prefs.get_prefs(UID)["currency"] == "KES"
+def test_there_is_no_default_currency(db):
+    """Worldwide: a new user has no currency until they pick one; amounts show without a code."""
+    assert prefs.get_prefs(UID)["currency"] is None
+    assert fmt(150000, None) == "1,500" and fmt(-20000, None) == "−200"
 
 
 def test_every_bot_message_uses_the_users_currency(db):
@@ -61,7 +63,7 @@ def test_change_currency_in_bot_settings(db):
             assert "Currency set to MWK" in out.texts[0]
             assert prefs.get_prefs(UID)["currency"] == "MWK"
             out = await h.tap("set:recap")
-            assert prefs.get_prefs(UID)["recap_enabled"] is False and "Weekly recap (Monday): <b>off</b>" in out.texts[-1]
+            assert prefs.get_prefs(UID)["recap_enabled"] is False and "Weekly recap (Monday 08:00): <b>off</b>" in out.texts[-1]
 
     run(scenario())
 

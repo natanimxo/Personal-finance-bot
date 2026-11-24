@@ -1,21 +1,23 @@
-"""Button labels, categories, accounts and keyboards. All bot text is sent as HTML."""
+"""Button labels, categories, accounts and keyboards. All bot text is sent as HTML and lives in app/strings.py."""
 import html
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
 from telegram.ext import filters
 
+from app.strings import t
+
 # ---------------------------------------------------------------------------
-# Main menu
+# Main menu (the labels are also what the handlers match on)
 # ---------------------------------------------------------------------------
-BTN_ADD = "➕ Add Expense"
-BTN_ADD_INCOME = "💵 Add Income"
-BTN_HISTORY = "📋 History"
-BTN_SUMMARY = "📊 Summary"
-BTN_BUDGETS = "💰 Budgets"
-BTN_ACCOUNTS = "🏦 Accounts"
-BTN_HELP = "❓ Help"
-BTN_SETTINGS = "⚙️ Settings"
-BTN_CANCEL = "❌ Cancel"
+BTN_ADD = t("menu.add")
+BTN_ADD_INCOME = t("menu.add_income")
+BTN_HISTORY = t("menu.history")
+BTN_SUMMARY = t("menu.summary")
+BTN_BUDGETS = t("menu.budgets")
+BTN_ACCOUNTS = t("menu.accounts")
+BTN_HELP = t("menu.help")
+BTN_SETTINGS = t("menu.settings")
+BTN_CANCEL = t("menu.cancel")
 
 MENU_BUTTONS = [BTN_ADD, BTN_ADD_INCOME, BTN_HISTORY, BTN_SUMMARY, BTN_BUDGETS, BTN_ACCOUNTS, BTN_SETTINGS, BTN_HELP]
 MENU_OR_CANCEL = filters.Text(MENU_BUTTONS + [BTN_CANCEL])
@@ -43,7 +45,7 @@ def esc(value) -> str:
 # ---------------------------------------------------------------------------
 # Keyboards
 # ---------------------------------------------------------------------------
-BTN_OPEN_APP = "📱 Open app"
+BTN_OPEN_APP = t("menu.open_app")
 
 
 def main_menu_keyboard():
@@ -82,7 +84,7 @@ def category_keyboard(prefix: str, options):
     return _grid(buttons, with_cancel=True)
 
 
-DATE_CHOICES = [("today", "Today"), ("yesterday", "Yesterday"), ("other", "📅 Other date")]
+DATE_CHOICES = [("today", t("date.today")), ("yesterday", t("date.yesterday")), ("other", t("date.other"))]
 
 
 def note_keyboard(skip_data: str, day_choice: str = "today"):
@@ -91,6 +93,6 @@ def note_keyboard(skip_data: str, day_choice: str = "today"):
              for key, label in DATE_CHOICES]
     return InlineKeyboardMarkup(
         [dates,
-         [InlineKeyboardButton("⏭️ Skip", callback_data=skip_data),
+         [InlineKeyboardButton(t("flow.skip"), callback_data=skip_data),
           InlineKeyboardButton(BTN_CANCEL, callback_data=CB_FLOW_CANCEL)]]
     )

@@ -18,12 +18,12 @@ from app.bot.keyboards import (
 )
 from app.bot.membership import is_subscribed, require_subscription, send_gate, touch_user
 from app.db import db_call
-from app import config
 from app.services import accounts, budgets, categories, periods, prefs, summaries, transactions, users
 from app.services.money import fmt
 from app.services.backup import run_backup
 from app.services.validation import ValidationError, check_date, to_minor
 from app.services.recap import recap_text
+from app.strings import t
 
 logger = logging.getLogger(__name__)
 
@@ -46,35 +46,18 @@ def clear_pending(context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 @require_subscription
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.effective_message.reply_text(
-        "👋 <b>Welcome!</b>\n\n"
-        "I'm your expense tracker. Everything works through the buttons below "
-        "— no typing commands needed.\n\n"
-        f"{BTN_ADD} — log a spend in 3 taps\n"
-        f"{BTN_ADD_INCOME} — log income in 3 taps\n"
-        f"{BTN_HISTORY} — see your recent transactions\n"
-        f"{BTN_SUMMARY} — income, expenses, net and savings rate\n"
-        f"{BTN_BUDGETS} — set spending limits &amp; get warned\n"
-        f"{BTN_ACCOUNTS} — balances per account; add, rename or archive accounts\n"
-        f"{BTN_SETTINGS} — currency, recaps, categories, recurring entries, export\n\n"
-        "I'll also message you every Monday morning with last week's recap, and on the 1st with last month's.",
-        reply_markup=main_menu_keyboard(),
-    )
+    await update.effective_message.reply_text(welcome_text(), reply_markup=main_menu_keyboard())
+
+
+def welcome_text() -> str:
+    return t("start.welcome", add=BTN_ADD, add_income=BTN_ADD_INCOME, history=BTN_HISTORY, summary=BTN_SUMMARY,
+             budgets=BTN_BUDGETS, accounts=BTN_ACCOUNTS, settings=BTN_SETTINGS)
 
 
 @require_subscription
 async def help_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(
-        "<b>How this works</b>\n\n"
-        f"1️⃣ Tap {BTN_ADD} or {BTN_ADD_INCOME}\n"
-        "2️⃣ Type the amount\n"
-        "3️⃣ Tap a category button\n"
-        "4️⃣ Tap an account. If you set a ⭐ default account, this step is skipped\n"
-        "5️⃣ Add a note, or skip it\n\n"
-        f"Changed your mind? Tap {BTN_CANCEL} at any step, or any menu button.\n\n"
-        "Use the other buttons any time to check your history, totals, or budgets.",
-        reply_markup=main_menu_keyboard(),
-    )
+        t("help.text", add=BTN_ADD, add_income=BTN_ADD_INCOME, cancel=BTN_CANCEL), reply_markup=main_menu_keyboard())
 
 
 # ---------------------------------------------------------------------------
@@ -82,14 +65,14 @@ async def help_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 FLOW = {
     "expense": {
-        "ask": "💵 How much did you spend? (just type the number, e.g. 12.50)",
-        "example": "12.50",
+        "ask": t("flow.ask_expense"),
+        "example": t("flow.example_expense"),
         "cat_prefix": "addcat", "acc_prefix": "addacc", "skip": "skip_note",
         "states": (ASK_AMOUNT, ASK_CATEGORY, ASK_ACCOUNT, ASK_NOTE),
     },
     "income": {
-        "ask": "💵 How much did you receive? (just type the number, e.g. 500)",
-        "example": "500",
+        "ask": t("flow.ask_income"),
+        "example": t("flow.example_income"),
         "cat_prefix": "inccat", "acc_prefix": "incacc", "skip": "skip_income_note",
         "states": (ASK_INCOME_AMOUNT, ASK_INCOME_CATEGORY, ASK_INCOME_ACCOUNT, ASK_INCOME_NOTE),
     },
@@ -112,11 +95,11 @@ async def _flow_amount(update: Update, context: ContextTypes.DEFAULT_TYPE, type_
     try:
         amount = parse_amount(update.message.text)
     except ValueError as e:
-        await update.message.reply_text(f"{esc(e)} Try again, e.g. {cfg['example']}")
+        await update.message.reply_text(t("flow.bad_amount", error=esc(e), example=cfg["example"]))
         return cfg["states"][0]
     context.user_data["pending_amount"] = amount
     options = await db_call(categories.choices, update.effective_user.id, type_)
-    await update.message.reply_text("Pick a category:", reply_markup=category_keyboard(cfg["cat_prefix"], options))
+    await update.message.reply_text(t("flow.pick_category"), reply_markup=category_keyboard(cfg["cat_prefix"], options))
     return cfg["states"][1]
 
 
@@ -125,8 +108,8 @@ ASK_DATE = 40  # typed date for "📅 Other date" (either flow; the type is in u
 
 def _note_prompt(context) -> str:
     day = context.user_data.get("pending_day")
-    when = "today" if day is None else f"{day:%a %d %b %Y}"
-    return f"📅 Date: <b>{when}</b>\nWant to add a quick note? Type it, or tap Skip."
+    when = t("flow.today") if day is None else t("flow.day", day=day)
+    return t("flow.note_prompt", when=when)
 
 
 async def _ask_note(update: Update, context: ContextTypes.DEFAULT_TYPE, type_: str):
@@ -146,7 +129,7 @@ async def flow_date_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     choice = query.data.split(":", 1)[1]
     type_ = context.user_data.get("flow_type", "expense")
     if choice == "other":
-        await query.edit_message_text("📅 Type the date, e.g. <code>22/11</code> or <code>2026-11-22</code>.")
+        await query.edit_message_text(t("flow.type_date"))
         return ASK_DATE
     context.user_data["day_choice"] = choice
     context.user_data["pending_day"] = None if choice == "today" else periods.today() - timedelta(days=1)
@@ -159,7 +142,7 @@ async def flow_date_typed(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         day = check_date(update.message.text)
     except ValidationError as e:
-        await update.message.reply_text(f"{esc(e)} Try again, or tap {BTN_CANCEL}.")
+        await update.message.reply_text(t("common.try_again", error=esc(e), cancel=BTN_CANCEL))
         return ASK_DATE
     context.user_data["pending_day"] = None if day == periods.today() else day
     context.user_data["day_choice"] = "today" if day == periods.today() else "other"
@@ -173,7 +156,7 @@ async def _flow_category(update: Update, context: ContextTypes.DEFAULT_TYPE, typ
     category_key = query.data.split("_", 1)[1]
     context.user_data["pending_category"] = category_key
     label = await db_call(categories.label, update.effective_user.id, type_, category_key)
-    await query.edit_message_text(f"Category: {esc(label)}")
+    await query.edit_message_text(t("flow.category_chosen", label=esc(label)))
 
     default = await db_call(accounts.get_default_account, update.effective_user.id)
     if default:
@@ -185,7 +168,7 @@ async def _flow_category(update: Update, context: ContextTypes.DEFAULT_TYPE, typ
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="Which account?",
+        text=t("flow.which_account"),
         reply_markup=account_keyboard(cfg["acc_prefix"], await db_call(accounts.choices, update.effective_user.id)),
     )
     return cfg["states"][2]
@@ -197,7 +180,7 @@ async def _flow_account(update: Update, context: ContextTypes.DEFAULT_TYPE, type
     account_key = query.data.split("_", 1)[1]
     context.user_data["pending_account"] = account_key
     names = await db_call(accounts.names, update.effective_user.id)
-    await query.edit_message_text(f"Account: {esc(names.get(account_key, account_key))}")
+    await query.edit_message_text(t("flow.account_chosen", name=esc(names.get(account_key, account_key))))
     return await _ask_note(update, context, type_)
 
 
@@ -209,31 +192,30 @@ def account_name(entry) -> str:
 def entry_line(entry) -> str:
     if entry["type"] == "transfer":
         to_name = entry.get("to_account_name") or account_label(entry["to_account"])
-        text = f"🔁 Moved {fmt(entry['amount_minor'], entry['currency'])} — {esc(account_name(entry))} → {esc(to_name)}"
-        day = periods.local_date_of(entry["occurred_at"])
-        if day != periods.today():
-            text += f"\n📅 {day:%a %d %b %Y}"
-        if entry["note"]:
-            text += f"\n📝 {esc(entry['note'])}"
-        return text
+        text = t("entry.moved", amount=fmt(entry["amount_minor"], entry["currency"]),
+                 from_account=esc(account_name(entry)), to_account=esc(to_name))
+        return text + _date_and_note(entry)
     type_ = entry["type"]
     signed = entry["amount_minor"] if type_ == "income" else -entry["amount_minor"]
     icon = "💵" if type_ == "income" else "✅"
-    text = (
-        f"{icon} Logged {fmt(signed, entry['currency'], sign=True)} — {esc(entry['category_name'])} "
-        f"({esc(account_name(entry))})"
-    )
+    text = t("entry.logged", icon=icon, amount=fmt(signed, entry["currency"], sign=True),
+             category=esc(entry["category_name"]), account=esc(account_name(entry)))
+    return text + _date_and_note(entry)
+
+
+def _date_and_note(entry) -> str:
+    text = ""
     day = periods.local_date_of(entry["occurred_at"])
     if day != periods.today():
-        text += f"\n📅 {day:%a %d %b %Y}"
+        text += t("entry.date_line", day=day)
     if entry["note"]:
-        text += f"\n📝 {esc(entry['note'])}"
+        text += t("entry.note_line", note=esc(entry["note"]))
     return text
 
 
 def change_account_keyboard(entry_id: int):
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🔁 Change account", callback_data=f"chacc:{entry_id}")]]
+        [[InlineKeyboardButton(t("entry.change_account"), callback_data=f"chacc:{entry_id}")]]
     )
 
 
@@ -242,11 +224,11 @@ def budget_warning_text(warning) -> str:
     if not warning:
         return ""
     label = esc(warning["label"])
-    currency = warning.get("currency") or config.DEFAULT_CURRENCY
+    currency = warning.get("currency")
     used = f"{fmt(warning['spent_minor'], currency)} / {fmt(warning['limit_minor'], currency)}"
     if warning["level"] == "over":
-        return f"🚨 You're over budget on {label}: {used}"
-    return f"⚠️ {warning['percent']}% of your {label} budget used ({used})"
+        return t("budget.over", label=label, used=used)
+    return t("budget.near", percent=warning["percent"], label=label, used=used)
 
 
 async def _finalize(update: Update, context: ContextTypes.DEFAULT_TYPE, note: str, type_: str):
@@ -268,7 +250,7 @@ async def _finalize(update: Update, context: ContextTypes.DEFAULT_TYPE, note: st
 
     if used_default:
         await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=change_account_keyboard(entry_id))
-        await context.bot.send_message(chat_id=chat_id, text="👇 Menu", reply_markup=main_menu_keyboard())
+        await context.bot.send_message(chat_id=chat_id, text=t("menu.hint"), reply_markup=main_menu_keyboard())
     else:
         await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=main_menu_keyboard())
     return ConversationHandler.END
@@ -278,8 +260,7 @@ async def _flow_note_typed(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     note = update.message.text.strip()
     if len(note) > MAX_NOTE_LENGTH:
         await update.message.reply_text(
-            f"Notes can be up to {MAX_NOTE_LENGTH} characters; yours has {len(note)}. "
-            "Send a shorter one, or tap Skip.",
+            t("flow.note_too_long", max=MAX_NOTE_LENGTH, length=len(note)),
             reply_markup=note_keyboard(FLOW[type_]["skip"], context.user_data.get("day_choice", "today")),
         )
         return FLOW[type_]["states"][3]
@@ -289,7 +270,7 @@ async def _flow_note_typed(update: Update, context: ContextTypes.DEFAULT_TYPE, t
 async def _flow_note_skipped(update: Update, context: ContextTypes.DEFAULT_TYPE, type_: str):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("⏭️ No note added.")
+    await query.edit_message_text(t("flow.no_note"))
     return await _finalize(update, context, "", type_)
 
 
@@ -323,7 +304,7 @@ async def change_account_start(update: Update, context: ContextTypes.DEFAULT_TYP
     entry_id = int(query.data.split(":", 1)[1])
     entry = await db_call(transactions.get_entry, update.effective_user.id, entry_id)
     if not entry:
-        await query.answer("That entry was deleted.", show_alert=True)
+        await query.answer(t("common.entry_deleted"), show_alert=True)
         return
     await query.answer()
     options = await db_call(accounts.choices, update.effective_user.id)
@@ -343,10 +324,10 @@ async def change_account_chosen(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer(str(e), show_alert=True)
         return
     if not moved:
-        await query.answer("That entry was deleted.", show_alert=True)
+        await query.answer(t("common.entry_deleted"), show_alert=True)
         return
     entry = await db_call(transactions.get_entry, user_id, entry_id)
-    await query.answer(f"Moved to {account_name(entry)}")
+    await query.answer(t("entry.moved_to", name=account_name(entry)))
     await query.edit_message_text(entry_line(entry), reply_markup=change_account_keyboard(entry_id))
 
 
@@ -357,16 +338,16 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_pending(context)
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text("❌ Cancelled.")
+        await update.callback_query.edit_message_text(t("flow.cancelled_inline"))
     await context.bot.send_message(
-        chat_id=update.effective_chat.id, text="Cancelled. Nothing was saved.", reply_markup=main_menu_keyboard()
+        chat_id=update.effective_chat.id, text=t("flow.cancelled"), reply_markup=main_menu_keyboard()
     )
     return ConversationHandler.END
 
 
 async def stale_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """A Cancel button from a flow that already ended."""
-    await update.callback_query.answer("Nothing to cancel.")
+    await update.callback_query.answer(t("flow.nothing_to_cancel"))
     await update.callback_query.edit_message_reply_markup(reply_markup=None)
 
 
@@ -375,7 +356,7 @@ async def conversation_timeout(update: Update, context: ContextTypes.DEFAULT_TYP
     if update and update.effective_chat:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="⌛ That entry timed out and wasn't saved.",
+            text=t("flow.timed_out"),
             reply_markup=main_menu_keyboard(),
         )
 
@@ -396,7 +377,7 @@ async def leave_flow_for_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     }.get(text, start)
     if view is not start and view is not help_view:
         # These screens carry inline buttons, so bring the main keyboard back first.
-        await update.message.reply_text("↩️ Unfinished entry dropped.", reply_markup=main_menu_keyboard())
+        await update.message.reply_text(t("flow.dropped"), reply_markup=main_menu_keyboard())
     await view(update, context)
     return ConversationHandler.END
 
@@ -414,9 +395,9 @@ async def delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     expense_id = int(query.data.split("_", 1)[1])
     ok = await db_call(transactions.delete_expense, update.effective_user.id, expense_id)
-    await query.answer("Deleted" if ok else "Already gone")
+    await query.answer(t("history.deleted_toast") if ok else t("history.gone_toast"))
     if ok:
-        await query.edit_message_text("🗑️ Deleted.")
+        await query.edit_message_text(t("history.deleted"))
 
 
 # ---------------------------------------------------------------------------
@@ -425,31 +406,32 @@ async def delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_subscription
 async def summary_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("This Week", callback_data="sum_week"),
-          InlineKeyboardButton("This Month", callback_data="sum_month")]]
+        [[InlineKeyboardButton(t("summary.this_week_button"), callback_data="sum_week"),
+          InlineKeyboardButton(t("summary.this_month_button"), callback_data="sum_month")]]
     )
-    await update.effective_message.reply_text("Pick a period:", reply_markup=kb)
+    await update.effective_message.reply_text(t("summary.pick_period"), reply_markup=kb)
 
 
 def format_summary(data: dict) -> str:
     since = datetime.fromisoformat(data["from"])
-    title = "This month" if data["period"] == "month" else "This week"
+    title = t("summary.this_month") if data["period"] == "month" else t("summary.this_week")
     c = data["currency"]
     lines = [
-        f"📊 <b>{title}</b> (since {since:%a %d %b})",
-        f"💵 Income: {fmt(data['income_minor'], c)}",
-        f"💸 Expenses: {fmt(data['expense_minor'], c)}",
-        f"⚖️ Net: {fmt(data['net_minor'], c, sign=True)}",
+        t("summary.header", title=title, since=since),
+        t("summary.income", amount=fmt(data["income_minor"], c)),
+        t("summary.expenses", amount=fmt(data["expense_minor"], c)),
+        t("summary.net", amount=fmt(data["net_minor"], c, sign=True)),
     ]
     if data["savings_rate"] is not None:
-        lines.append(f"💹 Savings rate: {data['savings_rate']:.0f}%")
+        lines.append(t("summary.savings_rate", rate=data["savings_rate"]))
     lines.append("")
     if data["by_category"]:
-        lines.append("<b>Expenses by category:</b>")
+        lines.append(t("summary.by_category"))
         for cat in data["by_category"]:
-            lines.append(f"• {esc(cat['label'])}: {fmt(cat['total_minor'], c)} ({cat['count']}x)")
+            lines.append(t("summary.category_line", label=esc(cat["label"]), amount=fmt(cat["total_minor"], c),
+                           count=cat["count"]))
     else:
-        lines.append("No expenses in this period.")
+        lines.append(t("summary.no_expenses"))
     return "\n".join(lines)
 
 
@@ -478,35 +460,36 @@ async def accounts_screen(user_id: int):
     c = (await db_call(prefs.get_prefs, user_id))["currency"]
     active = [r for r in rows if not r["archived"]]
     archived = [r for r in rows if r["archived"]]
-    lines = ["🏦 <b>Account balances:</b>"]
+    lines = [t("accounts.title")]
     for r in active:
-        lines.append(f"• {esc(r['label'])}: {fmt(r['balance_minor'], c)}{' ⭐' if r['is_default'] else ''}")
+        lines.append(t("accounts.line", label=esc(r["label"]), amount=fmt(r["balance_minor"], c))
+                     + (t("accounts.default_mark") if r["is_default"] else ""))
     if archived:
-        lines.append("\n<b>Archived:</b>")
-        lines += [f"• {esc(r['label'])}: {fmt(r['balance_minor'], c)}" for r in archived]
+        lines.append(t("accounts.archived"))
+        lines += [t("accounts.line", label=esc(r["label"]), amount=fmt(r["balance_minor"], c)) for r in archived]
     if any(r["is_default"] for r in active):
-        lines.append("\n⭐ = your default account. New entries go there without asking.")
+        lines.append(t("accounts.default_note"))
     else:
-        lines.append("\nSet a default account and new entries skip the account step.")
+        lines.append(t("accounts.no_default"))
     buttons = [
-        [InlineKeyboardButton("🔁 Transfer", callback_data="acc:transfer"),
-         InlineKeyboardButton("⭐ Set default", callback_data="set_default_account_start")],
-        [InlineKeyboardButton("➕ Add", callback_data="acc:add"),
-         InlineKeyboardButton("✏️ Rename", callback_data="acc:ren"),
-         InlineKeyboardButton("🗄️ Archive", callback_data="acc:arch")],
+        [InlineKeyboardButton(t("accounts.transfer_button"), callback_data="acc:transfer"),
+         InlineKeyboardButton(t("accounts.default_button"), callback_data="set_default_account_start")],
+        [InlineKeyboardButton(t("accounts.add_button"), callback_data="acc:add"),
+         InlineKeyboardButton(t("accounts.rename_button"), callback_data="acc:ren"),
+         InlineKeyboardButton(t("accounts.archive_button"), callback_data="acc:arch")],
     ]
     if archived:
-        buttons.append([InlineKeyboardButton("♻️ Restore an archived account", callback_data="acc:restore")])
+        buttons.append([InlineKeyboardButton(t("accounts.restore_button"), callback_data="acc:restore")])
     return "\n".join(lines), InlineKeyboardMarkup(buttons)
 
 
 async def set_default_account_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Pick your default account:")
+    await query.edit_message_text(t("accounts.pick_default"))
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="Choose one:",
+        text=t("accounts.choose_one"),
         reply_markup=account_keyboard(
             "setdefacc", await db_call(accounts.choices, update.effective_user.id),
             default=await db_call(accounts.get_default_account, update.effective_user.id), with_cancel=False
@@ -524,7 +507,7 @@ async def set_default_account_callback(update: Update, context: ContextTypes.DEF
         await query.edit_message_text(esc(e))
         return
     names = await db_call(accounts.names, update.effective_user.id)
-    await query.edit_message_text(f"⭐ Default account set to {esc(names.get(account_key, account_key))}")
+    await query.edit_message_text(t("accounts.default_set", name=esc(names.get(account_key, account_key))))
 
 
 # ---------------------------------------------------------------------------
@@ -533,15 +516,15 @@ async def set_default_account_callback(update: Update, context: ContextTypes.DEF
 @require_subscription
 async def budgets_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = await db_call(budgets.get_budgets, update.effective_user.id)
-    lines = ["💰 <b>Your monthly budgets:</b>"]
+    lines = [t("budgets.title")]
     if rows:
         c = (await db_call(prefs.get_prefs, update.effective_user.id))["currency"]
         labels = await db_call(categories.names, update.effective_user.id, "expense")
-        lines += [f"• {esc(labels.get(r['category'], label_for(r['category'], 'expense')))}: "
-                  f"{fmt(round(r['amount'] * 100), c)}" for r in rows]
+        lines += [t("budgets.line", label=esc(labels.get(r["category"], label_for(r["category"], "expense"))),
+                    amount=fmt(round(r["amount"] * 100), c)) for r in rows]
     else:
-        lines.append("None set yet.")
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("➕ Set a budget", callback_data="set_budget_start")]])
+        lines.append(t("budgets.none"))
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(t("budgets.set_button"), callback_data="set_budget_start")]])
     await update.effective_message.reply_text("\n".join(lines), reply_markup=kb)
 
 
@@ -553,9 +536,9 @@ async def budget_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     clear_pending(context)
     await query.answer()
-    await query.edit_message_text("Pick a category to set a budget for:")
+    await query.edit_message_text(t("budgets.pick_category"))
     await context.bot.send_message(
-        chat_id=update.effective_chat.id, text="Choose one:",
+        chat_id=update.effective_chat.id, text=t("accounts.choose_one"),
         reply_markup=category_keyboard("budgetcat", await db_call(categories.choices, update.effective_user.id, "expense"))
     )
     return BUDGET_CATEGORY
@@ -566,11 +549,11 @@ async def budget_category_chosen(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     category_key = query.data.split("_", 1)[1]
     context.user_data["pending_budget_category"] = category_key
-    await query.edit_message_text(
-        f"Category: {esc(await db_call(categories.label, update.effective_user.id, 'expense', category_key))}")
+    await query.edit_message_text(t(
+        "flow.category_chosen", label=esc(await db_call(categories.label, update.effective_user.id, "expense", category_key))))
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="Type the monthly limit, e.g. 200",
+        text=t("budgets.type_limit"),
         reply_markup=cancel_keyboard(),
     )
     return BUDGET_AMOUNT
@@ -580,13 +563,13 @@ async def budget_amount_received(update: Update, context: ContextTypes.DEFAULT_T
     try:
         amount = parse_amount(update.message.text)
     except ValueError as e:
-        await update.message.reply_text(f"{esc(e)} Try again, e.g. 200")
+        await update.message.reply_text(t("budgets.bad_amount", error=esc(e)))
         return BUDGET_AMOUNT
     category_key = context.user_data.pop("pending_budget_category")
     await db_call(budgets.set_budget, update.effective_user.id, category_key, amount)
     await update.message.reply_text(
-        f"✅ Budget for {esc(await db_call(categories.label, update.effective_user.id, 'expense', category_key))} set to "
-        f"{fmt(to_minor(amount), (await db_call(prefs.get_prefs, update.effective_user.id))['currency'])} a month",
+        t("budgets.saved", label=esc(await db_call(categories.label, update.effective_user.id, "expense", category_key)),
+          amount=fmt(to_minor(amount), (await db_call(prefs.get_prefs, update.effective_user.id))["currency"])),
         reply_markup=main_menu_keyboard(),
     )
     return ConversationHandler.END
@@ -607,9 +590,8 @@ async def recap_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     kind = "monthly" if context.args and context.args[0].lower().startswith("month") else "weekly"
     start, end = periods.previous_month() if kind == "monthly" else periods.previous_week()
-    text = await db_call(recap_text, update.effective_user.id, start, end, kind) or (
-        f"📊 Recap preview: nothing logged between {start:%a %d %b} and {end:%a %d %b}."
-    )
+    text = await db_call(recap_text, update.effective_user.id, start, end, kind) or t(
+        "admin.recap_empty", start=start, end=end)
     await context.bot.send_message(chat_id=config.ADMIN_CHAT_ID, text=text)
 
 
@@ -618,7 +600,7 @@ async def backup_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
     path = await run_backup(context.bot)
-    await update.effective_message.reply_text(f"🗄️ Backup written: <code>{esc(path)}</code>")
+    await update.effective_message.reply_text(t("admin.backup_written", path=esc(path)))
 
 
 RESTORE_MAX_BYTES = 20 * 1024 * 1024  # what a bot can download from Telegram
@@ -633,20 +615,19 @@ async def restore_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     doc = update.message.document
     if doc.file_size and doc.file_size > RESTORE_MAX_BYTES:
-        await update.message.reply_text("That file is over 20 MB, which bots can't download. Use the restore command on the server.")
+        await update.message.reply_text(t("admin.restore_too_big"))
         return
-    await update.message.reply_text("⏳ Checking the file…")
+    await update.message.reply_text(t("admin.restore_checking"))
     data = bytes(await (await doc.get_file()).download_as_bytearray())
     try:
         result = await db_call(restore_live, data)
     except ValueError as e:
-        await update.message.reply_text(f"❌ Not restored: {esc(e)}. Nothing was changed.")
+        await update.message.reply_text(t("admin.restore_failed", error=esc(e)))
         return
     c = result["counts"]
     await update.message.reply_text(
-        f"✅ Restored: {c['expenses']} entries, {c['users']} users, {c['budgets']} budgets.\n"
-        f"Migrations applied: {len(result['migrations'])}.\n"
-        + (f"The previous database was saved first: <code>{esc(result['safety_copy'])}</code>"
-           if result["safety_copy"] else "")
+        t("admin.restored", expenses=c["expenses"], users=c["users"], budgets=c["budgets"],
+          migrations=len(result["migrations"]))
+        + (t("admin.restore_safety_copy", path=esc(result["safety_copy"])) if result["safety_copy"] else "")
     )
 

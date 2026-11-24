@@ -24,6 +24,8 @@ REPO = Path(__file__).resolve().parent.parent
 @pytest.fixture
 def db(fresh_db):
     init_db()
+    from app.services import prefs
+    prefs.set_prefs(UID, "KES", timezone="Africa/Nairobi")   # what the test user picked at first start
     return fresh_db
 
 
@@ -37,20 +39,26 @@ async def add_expense(h, amount="12.50", category="food", account="bank", note=N
 
 
 # 1. Weekly recap -----------------------------------------------------------
-def test_1_recap_runs_monday_0800_app_timezone(db):
+def test_1_recap_runs_monday_0800_the_users_time(db):
+    """The recap job runs every hour on the hour; it is due from Monday 08:00 in the user's zone."""
     h = Harness()
-    job = next(j for j in h.app.job_queue.jobs() if j.name == "weekly_recap")
+    job = next(j for j in h.app.job_queue.jobs() if j.name == "recap")
 
     async def next_run():
         async with h:
             return job.next_t
 
-    next_t = run(next_run()).astimezone(ZoneInfo(config.APP_TIMEZONE))
-    assert next_t.strftime("%A %H:%M") == "Monday 08:00"
+    next_t = run(next_run())
+    assert (next_t.minute, next_t.second) == (0, 0) and job.job.trigger.interval == timedelta(hours=1)
+    from app.services.recap import due_key
+    with periods.use_zone("Africa/Nairobi"):
+        assert due_key("weekly", datetime(2026, 11, 23, 4, 59, tzinfo=timezone.utc)) is None        # Mon 07:59
+        assert due_key("weekly", datetime(2026, 11, 23, 5, 0, tzinfo=timezone.utc)) == "2026-11-16"  # Mon 08:00
 
 
 def test_1_recap_covers_last_monday_to_sunday(db):
-    start, end = periods.previous_week(datetime(2026, 11, 25, 12, tzinfo=timezone.utc))
+    with periods.for_user(UID):
+        start, end = periods.previous_week(datetime(2026, 11, 25, 12, tzinfo=timezone.utc))
     for amount, created in [(10, "2026-11-15T20:59:00"),   # Sun 15 Nov 23:59 Nairobi: week before
                             (20, "2026-11-15T21:00:00"),   # Mon 16 Nov 00:00: in
                             (30, "2026-11-22T20:59:00"),   # Sun 22 Nov 23:59: in
@@ -101,7 +109,7 @@ def test_2_with_default_the_account_step_is_skipped_and_can_be_changed(db):
             assert "note" in out.texts[-1]
             out = await h.tap("skip_note")
             confirmation = out.texts[-2]
-            assert "M-Pesa" in confirmation   # a new user's mobile-money account
+            assert "Mobile Wallet" in confirmation   # a new user's mobile-wallet account
             change = [b for b in out.buttons(-2) if b["text"] == "🔁 Change account"]
             assert change and out.has_main_keyboard(-1)
 

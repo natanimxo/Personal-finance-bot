@@ -54,8 +54,8 @@ def test_migrations_run_once(fresh_db):
 
 def test_app_builds(fresh_db):
     from app.main import build_application
-    from app.services.recap import send_weekly_recap
+    from app.services.recap import recap_tick
 
     application = build_application()
     assert sum(len(h) for h in application.handlers.values()) > 10
-    assert any(j.callback is send_weekly_recap for j in application.job_queue.jobs())
+    assert any(j.callback is recap_tick for j in application.job_queue.jobs())

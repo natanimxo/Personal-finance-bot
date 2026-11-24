@@ -1,6 +1,6 @@
 """Daily database backups.
 
-At 03:00 (APP_TIMEZONE) a copy is written with SQLite's backup API to
+At 03:00 UTC a copy is written with SQLite's backup API to
 backups/expenses-YYYY-MM-DD.db next to the database. The newest 7 daily copies
 are kept, plus the newest copy of each of the 4 weeks before them. A gzipped
 copy also goes to ADMIN_CHAT_ID, so a backup exists off the server too.
@@ -15,6 +15,7 @@ from datetime import date, timedelta
 
 from app import config
 from app.services import periods
+from app.strings import t
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ async def send_to_admin(bot, path: str):
         chat_id=config.ADMIN_CHAT_ID,
         document=data,
         filename=name,
-        caption=f"🗄️ Database backup {name} ({size_kb:.0f} KB before compression)",
+        caption=t("admin.backup_caption", name=name, size_kb=size_kb),
     )
     return True
 

@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from telegram import MenuButtonWebApp, Update, WebAppInfo
 
 from app import config
+from app.strings import t
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ async def start_bot(application, mode: str):
         await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
     url = mini_app_url()
     if url:
-        await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Open app", web_app=WebAppInfo(url=url)))
+        await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text=t("menu.button"), web_app=WebAppInfo(url=url)))
     await application.start()
     logger.info("Bot started (%s). Mini App: %s", mode, url or "not available without an https PUBLIC_URL")
 
@@ -104,7 +105,7 @@ def create_app(application=None) -> FastAPI:
     @web.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):
         logger.error("Unhandled API error on %s", request.url.path, exc_info=exc)
-        return JSONResponse(status_code=500, content={"error": "Something went wrong. Try again."})
+        return JSONResponse(status_code=500, content={"error": t("api.server_error")})
 
     @web.get("/healthz")
     async def healthz():

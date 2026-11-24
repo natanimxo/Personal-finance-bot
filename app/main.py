@@ -1,8 +1,7 @@
 """Builds the bot Application; main() starts the web server that runs it (app/web/server.py)."""
 import logging
 import os
-from datetime import time
-from zoneinfo import ZoneInfo
+from datetime import datetime, time, timedelta, timezone
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -13,21 +12,24 @@ from app.bot.conversations import FLOW_TIMEOUT, register_handlers
 from app.bot.ratelimit import SendRateLimiter
 from app.db import init_db
 from app.services.backup import daily_backup_job
-from app.services.recap import send_monthly_recap, send_weekly_recap
+from app.services.recap import recap_tick
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)  # one INFO line per Telegram call is noise at 1,000 users
 logger = logging.getLogger(__name__)
 
-RECAP_TIME = time(hour=8, minute=0)
-# python-telegram-bot 20+ numbers days 0=Sunday ... 6=Saturday, so Monday is 1.
-RECAP_DAYS = (1,)
-BACKUP_TIME = time(hour=3, minute=0)
-RECURRING_TIME = time(hour=6, minute=0)
+BACKUP_TIME = time(hour=3, minute=0, tzinfo=timezone.utc)
+HOUR = 3600
+
+
+def next_hour(now: datetime = None) -> datetime:
+    """The next full hour (UTC). Every user's 08:00 falls on one, except in the
+    few half-hour zones, where it's the half hour before."""
+    now = now or datetime.now(timezone.utc)
+    return now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
 
 
 def build_application(request=None, flow_timeout: int = FLOW_TIMEOUT) -> Application:
-    tz = ZoneInfo(config.APP_TIMEZONE)
     builder = (
         Application.builder()
         .token(config.BOT_TOKEN)
@@ -40,11 +42,12 @@ def build_application(request=None, flow_timeout: int = FLOW_TIMEOUT) -> Applica
         builder = builder.request(request).get_updates_request(request)
     app = builder.build()
     register_handlers(app, flow_timeout)
-    app.job_queue.run_daily(send_weekly_recap, time=RECAP_TIME.replace(tzinfo=tz), days=RECAP_DAYS, name="weekly_recap")
-    app.job_queue.run_monthly(send_monthly_recap, when=RECAP_TIME.replace(tzinfo=tz), day=1, name="monthly_recap")
-    app.job_queue.run_daily(daily_backup_job, time=BACKUP_TIME.replace(tzinfo=tz), name="daily_backup")
+    # Hourly: each user's weekly / monthly recap goes out at 08:00 their time, and
+    # recurring entries are made from 06:00 their time.
+    app.job_queue.run_repeating(recap_tick, interval=HOUR, first=next_hour(), name="recap")
     from app.bot.recurring_ui import recurring_job
-    app.job_queue.run_daily(recurring_job, time=RECURRING_TIME.replace(tzinfo=tz), name="recurring")
+    app.job_queue.run_repeating(recurring_job, interval=HOUR, first=next_hour() + timedelta(minutes=1), name="recurring")
+    app.job_queue.run_daily(daily_backup_job, time=BACKUP_TIME, name="daily_backup")
     return app
 
 

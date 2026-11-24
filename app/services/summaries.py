@@ -51,6 +51,7 @@ def period_bounds(period: str = "week", date_from: str = None, date_to: str = No
     return periods.week_start(now), None, "week"
 
 
+@periods.in_user_zone
 def summary(user_id: int, period: str = "week", date_from: str = None, date_to: str = None, now: datetime = None):
     start, end, name = period_bounds(period, date_from, date_to, now)
     income, expense = totals_minor(user_id, start, end)

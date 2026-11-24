@@ -6,6 +6,7 @@ import time
 from telegram.ext import ContextTypes
 
 from app import config
+from app.strings import t
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +39,11 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
         return
     where = ""
     if getattr(update, "effective_user", None):
-        where = f" (user {update.effective_user.id})"
-    skipped = f"\n{throttle.suppressed} more error(s) since the last alert." if throttle.suppressed else ""
+        where = t("admin.error_where", user_id=update.effective_user.id)
+    skipped = t("admin.error_skipped", n=throttle.suppressed) if throttle.suppressed else ""
     throttle.suppressed = 0
-    text = (
-        f"⚠️ <b>Bot error</b>{where}\n"
-        f"<code>{html.escape(type(error).__name__)}: {html.escape(str(error))[:500]}</code>{skipped}\n"
-        "Full traceback in the Railway logs."
-    )
+    error_text = f"{html.escape(type(error).__name__)}: {html.escape(str(error))[:500]}"
+    text = t("admin.error_alert", where=where, error=error_text, skipped=skipped)
     try:
         await context.bot.send_message(chat_id=config.ADMIN_CHAT_ID, text=text)
     except Exception as e:

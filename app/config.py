@@ -68,10 +68,8 @@ PUBLIC_URL = _env("PUBLIC_URL") or (
     f"https://{_env('RAILWAY_PUBLIC_DOMAIN')}" if _env("RAILWAY_PUBLIC_DOMAIN") else ""
 )
 WEBHOOK_SECRET = _env("WEBHOOK_SECRET")
-APP_TIMEZONE = _env("APP_TIMEZONE", default="Africa/Nairobi")
-DEFAULT_CURRENCY = _env("DEFAULT_CURRENCY", default="KES")
-# Accounts a new user starts with (existing users keep theirs). E.g. "Cash,Telebirr,Bank,Card".
-DEFAULT_ACCOUNTS = _env("DEFAULT_ACCOUNTS", default="Cash,M-Pesa,Bank,Card")
+# There is no app-wide currency or timezone: every user picks their own on /start
+# (stored in user_prefs). Server jobs such as the daily backup run on UTC.
 ADMIN_CHAT_ID = int(_env("ADMIN_CHAT_ID")) if _env("ADMIN_CHAT_ID").lstrip("-").isdigit() else None
 USE_POLLING = _env("USE_POLLING", default="false").lower() in ("1", "true", "yes")
 PORT = int(_env("PORT", default="8000"))

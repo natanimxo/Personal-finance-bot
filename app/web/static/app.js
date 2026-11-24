@@ -15,7 +15,7 @@
 
   if (insideTelegram) document.documentElement.classList.add("tg");
 
-  const state = { me: null, period: "week", route: "home", currency: "KES" };
+  const state = { me: null, period: "week", route: "home", currency: "" };  // the user's own; "" until picked
 
   // ---------------------------------------------------------------- helpers
   function h(tag, attrs = {}, ...children) {
@@ -34,13 +34,14 @@
     return el;
   }
 
-  // Same format as the bot (app/services/money.py): "KES 1,500", "KES 1,500.50", "−KES 200".
+  // Same format as the bot (app/services/money.py): "USD 1,500", "USD 1,500.50", "−USD 200",
+  // or just "1,500" before the user has picked a currency.
   function money(minor, { sign = false } = {}) {
     const n = Math.abs(minor) / 100;
     const cents = Math.abs(minor) % 100 !== 0;
     const text = n.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 });
     const prefix = sign ? (minor > 0 ? "+" : minor < 0 ? "−" : "") : (minor < 0 ? "−" : "");
-    return `${prefix}${state.currency} ${text}`;
+    return `${prefix}${state.currency ? state.currency + " " : ""}${text}`;
   }
 
   function haptic(kind) {
@@ -479,7 +480,7 @@
     const view = h("div", {},
       h("h1", {}, editing ? "Edit entry" : "New entry"),
       typeSeg,
-      h("div", { class: "field" }, h("label", {}, "Amount", ` (${state.currency})`), amount),
+      h("div", { class: "field" }, h("label", {}, "Amount", state.currency ? ` (${state.currency})` : ""), amount),
       catField,
       h("div", { class: "field" }, accLabel, accBox),
       toField,
@@ -596,7 +597,20 @@
   }
 
   // ---------------------------------------------------------------- Settings
-  const CURRENCIES = ["KES", "ETB", "UGX", "TZS", "RWF", "NGN", "GHS", "ZAR", "USD", "EUR", "GBP"];
+  // Every IANA zone the phone knows, for the timezone picker (older webviews: a short list).
+  function allZones(current) {
+    let zones = [];
+    try { zones = Intl.supportedValuesOf("timeZone"); } catch (_) { zones = []; }
+    if (!zones.length) zones = ["UTC", "Europe/London", "Europe/Berlin", "Africa/Lagos", "Africa/Nairobi", "Asia/Dubai",
+      "Asia/Kolkata", "Asia/Shanghai", "Asia/Tokyo", "Australia/Sydney", "America/New_York", "America/Chicago",
+      "America/Los_Angeles", "America/Sao_Paulo"];
+    if (!zones.includes("UTC")) zones = ["UTC", ...zones];
+    return current && !zones.includes(current) ? [current, ...zones] : zones;
+  }
+
+  function phoneZone() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (_) { return ""; }
+  }
 
   async function viewSettings() {
     const s = state.me.settings;
@@ -655,9 +669,12 @@
           newName, h("button", { class: "btn", type: "submit" }, "Add")));
     }
     drawCategories();
-    const options = CURRENCIES.includes(s.currency) ? CURRENCIES : [s.currency, ...CURRENCIES];
-    const currency = h("select", { class: "input", "aria-label": "Currency", onchange: (e) => update({ currency: e.target.value }) },
-      options.map((c) => h("option", { value: c, selected: c === s.currency }, c)));
+    const common = state.me.currencies || [];
+    const options = !s.currency ? ["", ...common] : common.includes(s.currency) ? common : [s.currency, ...common];
+    const currency = h("select", { class: "input", "aria-label": "Currency", onchange: (e) => e.target.value && update({ currency: e.target.value }) },
+      options.map((c) => h("option", { value: c, selected: c === (s.currency || "") }, c || "Pick…")));
+    const zone = h("select", { class: "input", "aria-label": "Timezone", onchange: (e) => update({ timezone: e.target.value }) },
+      allZones(s.timezone).map((z) => h("option", { value: z, selected: z === s.timezone }, z.replace(/_/g, " "))));
     const recap = h("input", { type: "checkbox", checked: s.recap_enabled, onchange: (e) => update({ recap_enabled: e.target.checked }) });
     const monthly = h("input", { type: "checkbox", checked: s.monthly_recap_enabled, onchange: (e) => update({ monthly_recap_enabled: e.target.checked }) });
 
@@ -665,7 +682,7 @@
       try {
         const res = await api("/api/settings", { method: "PUT", body: change });
         state.me.settings = res.settings;
-        state.currency = res.settings.currency;
+        state.currency = res.settings.currency || "";
         haptic("success");
         toast("Saved");
       } catch (err) { toast(err.message); go("settings"); }
@@ -674,11 +691,14 @@
     return h("div", {}, h("h1", {}, "Settings"),
       h("div", { class: "list" },
         h("label", { class: "row" }, h("span", { class: "main" }, "Currency"), h("span", { style: "width:120px" }, currency)),
+        h("label", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Timezone"),
+          h("div", { class: "sub" }, "When your week and month start, and when recaps arrive")),
+          h("span", { style: "width:170px" }, zone)),
         h("label", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Weekly recap"),
-          h("div", { class: "sub" }, "Every Monday morning, compared with the week before")),
+          h("div", { class: "sub" }, "Every Monday at 08:00 your time, compared with the week before")),
           h("span", { class: "switch" }, recap, h("span", {}))),
         h("label", { class: "row" }, h("span", { class: "main" }, h("div", {}, "Monthly recap"),
-          h("div", { class: "sub" }, "On the 1st, for the month that just ended")),
+          h("div", { class: "sub" }, "On the 1st at 08:00, for the month that just ended")),
           h("span", { class: "switch" }, monthly, h("span", {})))),
       h("h2", {}, "Categories"),
       categoryBox,
@@ -702,7 +722,17 @@
     screen.replaceChildren(h("div", { class: "spinner" }));
     try {
       state.me = await api("/api/me");
-      state.currency = state.me.settings.currency;
+      // First visit from the app: take the phone's own timezone (changeable in Settings).
+      if (!state.me.settings.timezone && phoneZone()) {
+        try { state.me.settings = (await api("/api/settings", { method: "PUT", body: { timezone: phoneZone() } })).settings; }
+        catch (_) { /* an unknown zone: the user picks one in Settings */ }
+      }
+      state.currency = state.me.settings.currency || "";
+      if (!state.me.settings.currency) {
+        go("settings");
+        toast("Pick your currency to get started");
+        return;
+      }
       go("home");
     } catch (err) {
       showError(err);
