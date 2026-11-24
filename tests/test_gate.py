@@ -40,6 +40,7 @@ def schedule(days_in: float, start_channel=ONE):
 def three(db):
     """The gate on, with three channels of our own (each with its invite link),
     and the schedule 5 days into period 0 (channel ONE, 25 days left)."""
+    gate.note_bot(1)                  # the fake Telegram's bot: its links are kept at startup
     with get_conn() as conn:
         conn.execute("DELETE FROM gate_channels")
     for chat_id in (ONE, TWO, THREE):

@@ -16,6 +16,7 @@ from app.bot.keyboards import (
     account_keyboard, account_label, cancel_keyboard, category_keyboard, esc,
     MAX_NOTE_LENGTH, label_for, main_menu_keyboard, note_keyboard, parse_amount,
 )
+from app.bot.app_hint import suggest_mini_app
 from app.bot.membership import is_subscribed, require_subscription, send_gate, touch_user
 from app.db import db_call
 from app.services import accounts, budgets, categories, periods, prefs, summaries, transactions, users
@@ -253,6 +254,7 @@ async def _finalize(update: Update, context: ContextTypes.DEFAULT_TYPE, note: st
         await context.bot.send_message(chat_id=chat_id, text=t("menu.hint"), reply_markup=main_menu_keyboard())
     else:
         await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=main_menu_keyboard())
+    await suggest_mini_app(context.bot, chat_id, user_id)
     return ConversationHandler.END
 
 

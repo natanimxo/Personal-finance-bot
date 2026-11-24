@@ -16,6 +16,21 @@ def register_user(user_id: int):
         )
 
 
+def bot_entry_logged(user_id: int):
+    """Count an entry logged in the bot. Returns (how many now, has opened the Mini App)."""
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET bot_entries = bot_entries + 1 WHERE user_id = ?", (user_id,))
+        row = conn.execute("SELECT bot_entries, app_seen_at FROM users WHERE user_id = ?", (user_id,)).fetchone()
+    return (row["bot_entries"], bool(row["app_seen_at"])) if row else (0, True)
+
+
+def app_opened(user_id: int):
+    """The user opened the Mini App: they are never nudged towards it."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET app_seen_at = ? WHERE user_id = ? AND app_seen_at IS NULL", (now, user_id))
+
+
 def get_all_users():
     with get_conn() as conn:
         rows = conn.execute("SELECT user_id FROM users").fetchall()

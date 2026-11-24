@@ -24,6 +24,8 @@ DYNAMIC = {
     "region.": ["africa", "americas", "asia", "europe", "oceania"],
     "settings.": ["weekly_on", "weekly_off", "monthly_on", "monthly_off"],
     "gate.alert_": ["not_admin", "no_invite"],
+    "cmd.": ["start", "help", "settings", "export", "cancel", "recap_now", "backup_now", "gate_status", "gate_list",
+             "gate_schedule", "gate_stats", "gate_add", "gate_remove", "gate_on", "gate_off"],
 }
 
 

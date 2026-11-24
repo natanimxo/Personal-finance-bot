@@ -204,6 +204,8 @@ async def prepare(bot):
 
 
 async def startup_check(bot):
+    if await db_call(gate.note_bot, bot.id):
+        logger.info("This is a different bot than before: the stored invite links were cleared")
     if not await db_call(gate.enabled):
         logger.info("Channel gate: off")
         return

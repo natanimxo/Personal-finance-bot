@@ -56,6 +56,11 @@ async def start_bot(application, mode: str):
         )
     else:
         await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+    try:
+        from app.bot.commands import set_commands
+        await set_commands(bot)
+    except Exception as e:
+        logger.warning("Couldn't set the command list: %s", e)
     url = mini_app_url()
     if url:
         await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text=t("menu.button"), web_app=WebAppInfo(url=url)))

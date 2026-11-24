@@ -348,6 +348,30 @@ EN.update({
     "categories.renamed": "✅ Renamed to {name}.",
 })
 
+# --- the "/" command list and the Mini App tip ---------------------------------------------
+EN.update({
+    "cmd.start": "Welcome and the menu",
+    "cmd.help": "How the bot works",
+    "cmd.settings": "Currency, timezone, recaps",
+    "cmd.export": "Get all your entries as a CSV file",
+    "cmd.cancel": "Drop the entry you're working on",
+    "cmd.recap_now": "Preview your weekly recap (admin)",
+    "cmd.backup_now": "Make a backup now (admin)",
+    "cmd.gate_status": "Channel gate: status and numbers (admin)",
+    "cmd.gate_list": "Channel gate: the channels (admin)",
+    "cmd.gate_schedule": "Channel gate: upcoming schedule (admin)",
+    "cmd.gate_stats": "Channel gate: numbers for the last n days (admin)",
+    "cmd.gate_add": "Channel gate: add a channel (admin)",
+    "cmd.gate_remove": "Channel gate: remove a channel (admin)",
+    "cmd.gate_on": "Channel gate: turn on (admin)",
+    "cmd.gate_off": "Channel gate: turn off (admin)",
+    "hint.mini_app": (
+        "💡 <b>Tip:</b> the Mini App is quicker than typing here: add entries in one screen, "
+        "see charts, filter your history and edit anything."
+    ),
+    "hint.open_app": "📱 Open the app",
+})
+
 # --- the channel gate ----------------------------------------------------------------------
 EN.update({
     # What users see. Never explain how the gate works (no periods, days, schedule or
