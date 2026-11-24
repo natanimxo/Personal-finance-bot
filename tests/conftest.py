@@ -50,4 +50,3 @@ def gate_on_with_one_channel(request, monkeypatch):
     channel = gate.Channel(TEST_CHANNEL, 1, "Test Channel", "https://t.me/+testInvite")
     monkeypatch.setattr(gate, "is_on", lambda: True)
     monkeypatch.setattr(gate, "channels", lambda now=None: [channel])
-    monkeypatch.setattr(gate, "FREE_DAYS", 0)   # no free days, so every test user is checked

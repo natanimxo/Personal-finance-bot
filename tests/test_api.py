@@ -89,11 +89,13 @@ def test_user_id_from_the_client_is_ignored(server):
 
 
 def test_non_member_gets_403_with_the_join_link(server):
+    from app.services import gate
     server.fake.member_status = "left"
     r = server.get("/api/me", headers=auth())
     assert r.status_code == 403
     assert r.json()["detail"] == {"error": "not_subscribed", "join_link": "https://t.me/+testInvite",
-                                  "channel": "Test Channel", "left": False, "days_left": 30}
+                                  "channel": "Test Channel", "left": False,
+                                  "days_left": gate.current().days_left}
 
 
 # --- API ------------------------------------------------------------------------
