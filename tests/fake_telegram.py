@@ -20,11 +20,37 @@ def assert_valid_html(text: str):
         assert re.match(r"&(lt|gt|amp|quot|#\d+);", rest[m.start():]), f"bare & in: {text!r}"
 
 
+def member_payload(status: str, is_member: bool, user: dict) -> dict:
+    """A ChatMember as Telegram sends it, with the fields each status requires."""
+    p = {"status": status, "user": user}
+    if status == "creator":
+        p.update(is_anonymous=False)
+    elif status == "administrator":
+        p.update({k: True for k in ("can_be_edited", "is_anonymous", "can_manage_chat", "can_delete_messages",
+                                    "can_manage_video_chats", "can_restrict_members", "can_promote_members",
+                                    "can_change_info", "can_invite_users", "can_post_stories", "can_edit_stories",
+                                    "can_delete_stories")})
+    elif status == "restricted":
+        p.update({k: False for k in ("can_change_info", "can_invite_users", "can_pin_messages", "can_send_messages",
+                                     "can_send_polls", "can_send_other_messages", "can_add_web_page_previews",
+                                     "can_manage_topics", "can_send_audios", "can_send_documents", "can_send_photos",
+                                     "can_send_videos", "can_send_video_notes", "can_send_voice_notes")})
+        p.update(is_member=is_member, until_date=0)
+    elif status == "kicked":
+        p.update(until_date=0)
+    return p
+
+
 class FakeRequest(BaseRequest):
     def __init__(self, rate_limit: int = None):
         self.sent = []          # (endpoint, params) for every message-producing call
         self.member_status = "member"
+        self.member_is_member = True   # for "restricted": still in the chat?
         self.member_error = False      # getChatMember fails (Telegram trouble)
+        self.member_error_text = "Bad Request: chat not found"
+        self.statuses = {}             # (chat_id, user_id) -> status, overrides member_status
+        self.bot_admin_in = None       # chats where the bot (id 1) is admin; None = everywhere
+        self.member_chats = []         # chat_id of every getChatMember call
         self.member_checks = 0
         self.forbidden_chats = set()   # chats that blocked the bot
         self.rate_limit = rate_limit   # max sendMessage calls in any 1 s window, like Telegram
@@ -57,11 +83,24 @@ class FakeRequest(BaseRequest):
             file_id = params["file_id"]
             result = {"file_id": file_id, "file_unique_id": file_id, "file_size": len(self.files[file_id]),
                       "file_path": file_id}
+        elif endpoint == "getChat":
+            chat_id = str(params["chat_id"])
+            result = {"id": -1001000000000, "type": "channel", "title": f"Title of {chat_id}",
+                      "accent_color_id": 0, "max_reaction_count": 0}
         elif endpoint == "getChatMember":
-            self.member_checks += 1
-            if self.member_error:
-                return 400, json.dumps({"ok": False, "error_code": 400, "description": "Bad Request: chat not found"}).encode()
-            result = {"status": self.member_status, "user": USER}
+            chat_id, user_id = str(params["chat_id"]), int(params["user_id"])
+            if user_id == 1:  # the bot itself: admin check
+                if self.bot_admin_in is not None and chat_id not in self.bot_admin_in:
+                    return 400, json.dumps({"ok": False, "error_code": 400,
+                                            "description": "Bad Request: member list is inaccessible"}).encode()
+                result = member_payload("administrator", True, {"id": 1, "is_bot": True, "first_name": "Bot"})
+            else:
+                self.member_checks += 1
+                self.member_chats.append(chat_id)
+                if self.member_error:
+                    return 400, json.dumps({"ok": False, "error_code": 400, "description": self.member_error_text}).encode()
+                status = self.statuses.get((chat_id, user_id), self.member_status)
+                result = member_payload(status, self.member_is_member, USER)
         elif endpoint == "sendMessage" and self.rate_limit is not None and self._over_limit():
             self.too_many += 1
             return 429, json.dumps({"ok": False, "error_code": 429, "description": "Too Many Requests: retry after 1",

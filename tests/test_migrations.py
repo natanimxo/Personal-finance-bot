@@ -41,7 +41,7 @@ def test_every_migration_runs_in_order_once(old_db):
     init_db()
     with get_conn() as conn:
         versions = [r[0] for r in conn.execute("SELECT version FROM schema_version ORDER BY version")]
-    assert versions == [v for v, _ in db._migration_files()] == list(range(1, 11))
+    assert versions == [v for v, _ in db._migration_files()] == list(range(1, 12))
     assert db.run_migrations() == []
 
 

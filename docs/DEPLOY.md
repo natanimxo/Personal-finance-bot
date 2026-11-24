@@ -57,14 +57,28 @@ Service → **Variables**:
 | Variable | Value |
 |---|---|
 | `BOT_TOKEN` | already set |
-| `CHANNEL_ID` | your channel, e.g. `@yourchannel` (the old `REQUIRED_CHANNEL` also still works) |
-| `CHANNEL_LINK` | e.g. `https://t.me/yourchannel` (the old `CHANNEL_INVITE_LINK` also still works) |
+| `GATE_ENABLED` | `false` for now (no channel checks). Set `true` to turn on the channel gate, after step 4b |
+| `GATE_CHANNELS` | up to 6 channels, e.g. `@chan_one\|https://t.me/chan_one,-1001234567890\|https://t.me/+invite` (or the older one-channel `CHANNEL_ID` + `CHANNEL_LINK`) |
 | `WEBHOOK_SECRET` | 32+ random characters. Generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `ADMIN_CHAT_ID` | your Telegram id from step 1, which gets backups, error alerts and admin commands |
 Don't set `DB_PATH` (the volume default is right) or `PORT` (Railway sets it).
 There is no currency or timezone variable: each user picks their own on /start.
 If an older setup has `APP_TIMEZONE`, `DEFAULT_CURRENCY` or `DEFAULT_ACCOUNTS`,
 they're ignored and can be deleted.
+
+## 4b. Before turning the channel gate on
+
+1. In each channel: **Administrators → Add Admin →** your bot. No special rights are
+   needed; Telegram only shows members to admins, so without this every check fails.
+2. Use the channel's `@username` (or numeric `-100…` id for a private channel) as the
+   id, never an invite link; the invite link goes after the `|`.
+3. Set `GATE_ENABLED=true`. After the redeploy, send `/gate_status` from the admin
+   account: every channel should show **bot admin ✅**. If one doesn't, the admin
+   chat also gets an alert at startup, and that channel lets users through until
+   it's fixed.
+
+Each user's first 30 days are free; then they need channel 1 for 30 days, channel 2
+for the next 30, and so on. The admin account is never checked.
 
 ## 5. Health check and replicas
 
@@ -104,6 +118,7 @@ A daily backup `.db.gz` from the admin chat works the same way.
   location). After that 📋 History shows your old entries and ➕ Add Expense works.
 - The **Open app** button (bottom left of the chat) opens the Mini App.
 - `/backup_now`: a `.db.gz` arrives in the admin chat.
+- `/gate_status`: shows the gate off (or, once on, every channel with bot admin ✅).
 - `/recap_now`: a recap preview arrives.
 
 Then do the **phone test** below.
@@ -156,6 +171,7 @@ Do this on a real phone, once in Telegram's light theme and once in dark.
 | The weekly recap arrives Monday 08:00 in each user's own timezone | Automated: `tests/test_worldwide.py` (Tokyo and New York users), `tests/test_better_recaps.py`. On Railway: `/recap_now`, then wait for Monday |
 | Every user picks their currency and timezone at first start | Automated: `tests/test_worldwide.py`. Phone test |
 | All bot text is in one file | Automated: `tests/test_strings.py` |
+| Channel gate: off by default, free month, monthly rotation, every member status, admin exempt, never mid-entry | Automated: `tests/test_gate.py`. On Railway: `/gate_status` |
 | The Mini App opens from the menu button and works in light and dark themes | Phone test |
 | Entries match between the bot and the Mini App | Automated: `tests/test_api.py::test_entry_added_in_the_app_shows_in_bot_history_and_back`. Phone test |
 | Quick entry, editing, past dates and transfers work in both | Automated: `tests/test_quick_entry.py`, `test_edit_entries.py`, `test_past_dates.py`, `test_transfers.py`. Phone test |

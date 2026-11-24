@@ -1,5 +1,13 @@
-"""The channel-membership gate, with a short cache so 1,000 users don't mean
-1,000 getChatMember calls a minute."""
+"""The channel gate on the bot side: asking Telegram whether a user is in the
+channel the rules in app/services/gate.py require now, with a short cache so
+1,000 users don't mean 1,000 getChatMember calls a minute.
+
+The gate is checked only when a user starts something (a menu screen, a command,
+the start of an add flow, a quick entry, a Mini App request), never in the middle
+of an entry. Telegram only answers getChatMember for a channel when the bot is an
+administrator there; if it isn't, the check lets users through (and alerts the
+admin) rather than locking everyone out.
+"""
 import logging
 import time
 from functools import wraps
@@ -10,13 +18,22 @@ from telegram.ext import ContextTypes
 from app import config
 from app.bot.keyboards import esc, main_menu_keyboard
 from app.db import db_call
-from app.services import periods, prefs, users
+from app.services import gate, periods, prefs, users
 from app.strings import t
 
 logger = logging.getLogger(__name__)
 
-VALID_STATUSES = {"member", "administrator", "creator"}
+# Counts as "in the channel". A restricted user is still a member if is_member is true.
+JOINED_STATUSES = {"creator", "administrator", "member"}
 CACHE_SECONDS = 15 * 60
+# Telegram's answer when the bot can't see the member list: the bot isn't an admin.
+NOT_ADMIN_ERRORS = ("member list is inaccessible", "not enough rights", "bot is not a member")
+
+
+def counts_as_joined(member) -> bool:
+    if member.status in JOINED_STATUSES:
+        return True
+    return member.status == "restricted" and bool(getattr(member, "is_member", False))
 
 
 class MembershipCache:
@@ -52,18 +69,92 @@ class MembershipCache:
 membership_cache = MembershipCache()
 
 
-async def is_subscribed(context: ContextTypes.DEFAULT_TYPE, user_id: int, live: bool = False) -> bool:
-    if not live and membership_cache.fresh(user_id):
+_not_admin_alerted = set()   # channels the admin has been told about in this run
+_titles = {}                 # chat_id -> channel title, filled by check_channels()
+
+
+async def _alert_not_admin(bot, channel):
+    if channel.chat_id in _not_admin_alerted:
+        return
+    _not_admin_alerted.add(channel.chat_id)
+    logger.error("The bot is not an admin of %s, so it can't check members: letting users through", channel.chat_id)
+    if config.ADMIN_CHAT_ID is not None:
+        try:
+            await bot.send_message(chat_id=config.ADMIN_CHAT_ID,
+                                   text=t("gate.alert_not_admin", channels=esc(channel.chat_id)))
+        except Exception as e:
+            logger.warning(f"Couldn't alert the admin: {e}")
+
+
+async def is_member_of(bot, channel, user_id: int, live: bool = False) -> bool:
+    key = (user_id, channel.chat_id)
+    if not live and membership_cache.fresh(key):
         return True
     try:
-        member = await context.bot.get_chat_member(config.REQUIRED_CHANNEL, user_id)
+        member = await bot.get_chat_member(channel.chat_id, user_id)
     except Exception as e:
-        fallback = membership_cache.last_known(user_id)
-        logger.warning(f"Subscription check failed for {user_id}: {e}; using last known result ({fallback})")
+        if any(text in str(e).lower() for text in NOT_ADMIN_ERRORS):
+            await _alert_not_admin(bot, channel)
+            return True  # our setup problem, not the user's
+        fallback = membership_cache.last_known(key)
+        logger.warning(f"Membership check in {channel.chat_id} failed for {user_id}: {e}; "
+                       f"using last known result ({fallback})")
         return fallback
-    subscribed = member.status in VALID_STATUSES
-    membership_cache.store(user_id, subscribed)
-    return subscribed
+    joined = counts_as_joined(member)
+    membership_cache.store(key, joined)
+    return joined
+
+
+async def is_subscribed(context: ContextTypes.DEFAULT_TYPE, user_id: int, live: bool = False) -> bool:
+    """True when the user may go on: gate off, admin, free month, or in this month's channel."""
+    channel = await db_call(gate.required_channel, user_id)
+    if channel is None:
+        return True
+    return await is_member_of(context.bot, channel, user_id, live)
+
+
+def channel_name(channel) -> str:
+    return _titles.get(channel.chat_id) or channel.name
+
+
+async def check_channels(bot):
+    """[{channel, title, admin (True/False/None if unknown), error}] for every listed channel."""
+    results = []
+    for channel in gate.channels():
+        row = {"channel": channel, "title": _titles.get(channel.chat_id), "admin": None, "error": ""}
+        try:
+            chat = await bot.get_chat(channel.chat_id)
+            row["title"] = _titles[channel.chat_id] = chat.title or channel.chat_id
+        except Exception as e:
+            row["error"] = str(e)
+        try:
+            me = await bot.get_chat_member(channel.chat_id, bot.id)
+            row["admin"] = me.status in ("administrator", "creator")
+        except Exception as e:
+            if any(text in str(e).lower() for text in NOT_ADMIN_ERRORS):
+                row["admin"] = False
+            row["error"] = row["error"] or str(e)
+        results.append(row)
+    return results
+
+
+async def startup_check(bot):
+    """On startup, with the gate on: tell the admin about any channel the bot isn't an admin of."""
+    for problem in gate.problems():
+        logger.error("GATE_CHANNELS: %s", problem)
+    if not gate.enabled():
+        logger.info("Channel gate: off")
+        return
+    rows = await check_channels(bot)
+    missing = [r["channel"].chat_id for r in rows if r["admin"] is not True]
+    logger.info("Channel gate: on, %d channel(s); bot not admin in: %s", len(rows), ", ".join(missing) or "none")
+    if missing and config.ADMIN_CHAT_ID is not None:
+        _not_admin_alerted.update(missing)
+        try:
+            await bot.send_message(chat_id=config.ADMIN_CHAT_ID,
+                                   text=t("gate.alert_not_admin", channels=esc(", ".join(missing))))
+        except Exception as e:
+            logger.warning(f"Couldn't alert the admin: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -100,20 +191,23 @@ async def track_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 # Gate
 # ---------------------------------------------------------------------------
-def gate_keyboard():
+def gate_keyboard(channel):
     buttons = []
-    if config.CHANNEL_INVITE_LINK:
-        buttons.append([InlineKeyboardButton(t("gate.join"), url=config.CHANNEL_INVITE_LINK)])
+    if channel.link:
+        buttons.append([InlineKeyboardButton(t("gate.join", name=channel_name(channel)), url=channel.link)])
     buttons.append([InlineKeyboardButton(t("gate.subscribed"), callback_data="recheck_sub")])
     return InlineKeyboardMarkup(buttons)
 
 
-def gate_text() -> str:
-    return t("gate.text", link=esc(config.CHANNEL_INVITE_LINK))
+def gate_text(channel) -> str:
+    return t("gate.text", name=esc(channel_name(channel)), link=esc(channel.link or channel.chat_id))
 
 
 async def send_gate(update: Update):
-    await update.effective_message.reply_text(gate_text(), reply_markup=gate_keyboard())
+    channel = await db_call(gate.required_channel, update.effective_user.id)
+    if channel is None:
+        return
+    await update.effective_message.reply_text(gate_text(channel), reply_markup=gate_keyboard(channel))
 
 
 def require_subscription(handler):

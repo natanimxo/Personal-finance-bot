@@ -117,7 +117,7 @@ def test_telegram_error_uses_last_known_result(db):
 
             membership.membership_cache.clear()        # nothing known about them
             out = await h.text(BTN_HISTORY)
-            assert "join my channel" in out.texts[0]
+            assert "This month's channel" in out.texts[0]
 
     run(scenario())
 
@@ -354,7 +354,7 @@ def test_membership_checks_are_not_throttled_like_group_messages(db):
     async def scenario():
         async with Harness() as h:
             started = time.monotonic()
-            for uid in range(1, 41):
+            for uid in range(2, 42):   # id 1 is the bot itself in the fake Telegram
                 await membership.is_subscribed(SimpleNamespace(bot=h.app.bot), uid, live=True)
             assert h.request.member_checks == 40
             assert time.monotonic() - started < 5
