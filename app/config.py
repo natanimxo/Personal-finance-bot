@@ -51,16 +51,9 @@ def _resolve_db_path() -> str:
 
 
 BOT_TOKEN = _env("BOT_TOKEN")
-# CHANNEL_ID / CHANNEL_LINK are the documented names; REQUIRED_CHANNEL /
-# CHANNEL_INVITE_LINK are the original ones, still accepted so an existing
-# Railway service keeps working without renaming its variables.
-REQUIRED_CHANNEL = _env("CHANNEL_ID", "REQUIRED_CHANNEL")
-CHANNEL_INVITE_LINK = _env("CHANNEL_LINK", "CHANNEL_INVITE_LINK")
-# The channel gate (app/services/gate.py). Off unless GATE_ENABLED is true.
-GATE_ENABLED = _env("GATE_ENABLED", default="false").lower() in ("1", "true", "yes", "on")
-# Up to 6 "@username|https://t.me/username" (or "-100...|invite link"), comma-separated.
-# Empty: the one channel above.
-GATE_CHANNELS = _env("GATE_CHANNELS")
+# The channel gate is not configured here: the channels and the on/off switch live in
+# the database and are managed with admin commands (app/services/gate.py).
+
 
 DB_PATH = _resolve_db_path()
 DB_PATH_SOURCE = (

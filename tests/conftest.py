@@ -3,8 +3,6 @@ import os
 import tempfile
 
 os.environ.setdefault("BOT_TOKEN", "1:test-token")
-os.environ.setdefault("CHANNEL_ID", "@test_channel")
-os.environ.setdefault("CHANNEL_LINK", "https://t.me/test_channel_name")
 os.environ.setdefault("DB_PATH", os.path.join(tempfile.mkdtemp(), "session.db"))
 for var in ("RAILWAY_VOLUME_MOUNT_PATH", "RAILWAY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME", "RAILWAY_PROJECT_ID"):
     os.environ.pop(var, None)
@@ -35,15 +33,20 @@ def reset_process_caches():
     yield
 
 
+TEST_CHANNEL = -1001000000001
+
+
 @pytest.fixture(autouse=True)
-def gate_on_without_free_month(monkeypatch):
-    """Most tests are about the gate's checks, so it is on and the free month is off;
-    tests/test_gate.py covers the real defaults (off, 30 free days, rotation)."""
+def gate_on_with_one_channel(request, monkeypatch):
+    """Most tests are about the gate's checks: it is on, with one channel whose title
+    and invite link are already cached. tests/test_gate.py uses the real database
+    (the seeded rotation, off by default) instead."""
+    from app.bot import membership
     from app.services import gate
 
-    monkeypatch.setattr(config, "GATE_ENABLED", True)
-    monkeypatch.setattr(config, "GATE_CHANNELS", "")
-    monkeypatch.setattr(gate, "FREE_DAYS", 0)
-    from app.bot import membership
     membership._not_admin_alerted.clear()
-    membership._titles.clear()
+    if request.module.__name__.endswith("test_gate"):
+        return
+    channel = gate.Channel(TEST_CHANNEL, 1, "Test Channel", "https://t.me/+testInvite")
+    monkeypatch.setattr(gate, "is_on", lambda: True)
+    monkeypatch.setattr(gate, "channels", lambda now=None: [channel])

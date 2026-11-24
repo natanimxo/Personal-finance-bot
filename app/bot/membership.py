@@ -10,6 +10,7 @@ admin) rather than locking everyone out.
 """
 import logging
 import time
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -70,7 +71,6 @@ membership_cache = MembershipCache()
 
 
 _not_admin_alerted = set()   # channels the admin has been told about in this run
-_titles = {}                 # chat_id -> channel title, filled by check_channels()
 
 
 async def _alert_not_admin(bot, channel):
@@ -113,48 +113,75 @@ async def is_subscribed(context: ContextTypes.DEFAULT_TYPE, user_id: int, live: 
     return await is_member_of(context.bot, channel, user_id, live)
 
 
-def channel_name(channel) -> str:
-    return _titles.get(channel.chat_id) or channel.name
+async def channel_title(bot, channel) -> str:
+    """The channel's current title (getChat), cached for 24 hours; never configured by hand."""
+    if channel.title:
+        return channel.title
+    try:
+        chat = await bot.get_chat(channel.chat_id)
+    except Exception as e:
+        logger.warning("getChat %s failed: %s", channel.chat_id, e)
+        return channel.name
+    await db_call(gate.cache_title, channel.chat_id, chat.title or str(channel.chat_id))
+    return chat.title or channel.name
+
+
+async def invite_link(bot, channel):
+    """A join link the bot creates itself (it's an admin), cached for 24 hours. Each one
+    expires after 48 hours, so old links don't pile up. None if Telegram refuses."""
+    if channel.invite_link:
+        return channel.invite_link
+    try:
+        link = await bot.create_chat_invite_link(channel.chat_id, name="Expense bot",
+                                                 expire_date=datetime.now(timezone.utc) + timedelta(hours=48))
+    except Exception as e:
+        logger.warning("createChatInviteLink %s failed: %s", channel.chat_id, e)
+        return None
+    await db_call(gate.cache_invite_link, channel.chat_id, link.invite_link)
+    return link.invite_link
+
+
+async def bot_is_admin(bot, chat_id: int):
+    """True / False, or None when Telegram doesn't say (e.g. the chat doesn't exist)."""
+    try:
+        me = await bot.get_chat_member(chat_id, bot.id)
+    except Exception as e:
+        if any(text in str(e).lower() for text in NOT_ADMIN_ERRORS):
+            return False
+        logger.warning("Admin check in %s failed: %s", chat_id, e)
+        return None
+    return me.status in ("administrator", "creator")
 
 
 async def check_channels(bot):
-    """[{channel, title, admin (True/False/None if unknown), error}] for every listed channel."""
-    results = []
-    for channel in gate.channels():
-        row = {"channel": channel, "title": _titles.get(channel.chat_id), "admin": None, "error": ""}
-        try:
-            chat = await bot.get_chat(channel.chat_id)
-            row["title"] = _titles[channel.chat_id] = chat.title or channel.chat_id
-        except Exception as e:
-            row["error"] = str(e)
-        try:
-            me = await bot.get_chat_member(channel.chat_id, bot.id)
-            row["admin"] = me.status in ("administrator", "creator")
-        except Exception as e:
-            if any(text in str(e).lower() for text in NOT_ADMIN_ERRORS):
-                row["admin"] = False
-            row["error"] = row["error"] or str(e)
-        results.append(row)
-    return results
+    """[{channel, title, admin}] for every channel in the rotation."""
+    rows = []
+    for channel in await db_call(gate.channels):
+        rows.append({"channel": channel, "title": await channel_title(bot, channel),
+                     "admin": await bot_is_admin(bot, channel.chat_id)})
+    return rows
 
 
-async def startup_check(bot):
-    """On startup, with the gate on: tell the admin about any channel the bot isn't an admin of."""
-    for problem in gate.problems():
-        logger.error("GATE_CHANNELS: %s", problem)
-    if not gate.enabled():
-        logger.info("Channel gate: off")
-        return
-    rows = await check_channels(bot)
-    missing = [r["channel"].chat_id for r in rows if r["admin"] is not True]
-    logger.info("Channel gate: on, %d channel(s); bot not admin in: %s", len(rows), ", ".join(missing) or "none")
+async def alert_missing_admin(bot, rows):
+    missing = [str(r["channel"].chat_id) for r in rows if r["admin"] is not True]
     if missing and config.ADMIN_CHAT_ID is not None:
-        _not_admin_alerted.update(missing)
+        _not_admin_alerted.update(r["channel"].chat_id for r in rows if r["admin"] is not True)
         try:
             await bot.send_message(chat_id=config.ADMIN_CHAT_ID,
                                    text=t("gate.alert_not_admin", channels=esc(", ".join(missing))))
         except Exception as e:
             logger.warning(f"Couldn't alert the admin: {e}")
+    return missing
+
+
+async def startup_check(bot):
+    """On startup, with the gate on: tell the admin about any channel the bot isn't an admin of."""
+    if not await db_call(gate.enabled):
+        logger.info("Channel gate: off")
+        return
+    rows = await check_channels(bot)
+    missing = await alert_missing_admin(bot, rows)
+    logger.info("Channel gate: on, %d channel(s); bot not admin in: %s", len(rows), ", ".join(missing) or "none")
 
 
 # ---------------------------------------------------------------------------
@@ -191,23 +218,16 @@ async def track_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 # Gate
 # ---------------------------------------------------------------------------
-def gate_keyboard(channel):
-    buttons = []
-    if channel.link:
-        buttons.append([InlineKeyboardButton(t("gate.join", name=channel_name(channel)), url=channel.link)])
-    buttons.append([InlineKeyboardButton(t("gate.subscribed"), callback_data="recheck_sub")])
-    return InlineKeyboardMarkup(buttons)
-
-
-def gate_text(channel) -> str:
-    return t("gate.text", name=esc(channel_name(channel)), link=esc(channel.link or channel.chat_id))
-
-
-async def send_gate(update: Update):
+async def send_gate(update: Update, context=None):
+    """The join screen: this month's channel by name, 📢 Join and ✅ I've joined."""
+    bot = update.get_bot()
     channel = await db_call(gate.required_channel, update.effective_user.id)
     if channel is None:
         return
-    await update.effective_message.reply_text(gate_text(channel), reply_markup=gate_keyboard(channel))
+    title, link = await channel_title(bot, channel), await invite_link(bot, channel)
+    buttons = [[InlineKeyboardButton(t("gate.join", name=title), url=link)]] if link else []
+    buttons.append([InlineKeyboardButton(t("gate.subscribed"), callback_data="recheck_sub")])
+    await update.effective_message.reply_text(t("gate.text", name=esc(title)), reply_markup=InlineKeyboardMarkup(buttons))
 
 
 def require_subscription(handler):

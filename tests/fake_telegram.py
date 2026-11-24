@@ -51,6 +51,7 @@ class FakeRequest(BaseRequest):
         self.statuses = {}             # (chat_id, user_id) -> status, overrides member_status
         self.bot_admin_in = None       # chats where the bot (id 1) is admin; None = everywhere
         self.member_chats = []         # chat_id of every getChatMember call
+        self.invite_links = 0          # createChatInviteLink calls
         self.member_checks = 0
         self.forbidden_chats = set()   # chats that blocked the bot
         self.rate_limit = rate_limit   # max sendMessage calls in any 1 s window, like Telegram
@@ -83,6 +84,11 @@ class FakeRequest(BaseRequest):
             file_id = params["file_id"]
             result = {"file_id": file_id, "file_unique_id": file_id, "file_size": len(self.files[file_id]),
                       "file_path": file_id}
+        elif endpoint == "createChatInviteLink":
+            self.invite_links += 1
+            result = {"invite_link": f"https://t.me/+invite{self.invite_links}_{params['chat_id']}",
+                      "creator": {"id": 1, "is_bot": True, "first_name": "Bot"}, "creates_join_request": False,
+                      "is_primary": False, "is_revoked": False}
         elif endpoint == "getChat":
             chat_id = str(params["chat_id"])
             result = {"id": -1001000000000, "type": "channel", "title": f"Title of {chat_id}",

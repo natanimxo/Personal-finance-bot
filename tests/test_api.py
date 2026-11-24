@@ -92,8 +92,8 @@ def test_non_member_gets_403_with_the_join_link(server):
     server.fake.member_status = "left"
     r = server.get("/api/me", headers=auth())
     assert r.status_code == 403
-    assert r.json()["detail"] == {"error": "not_subscribed", "join_link": config.CHANNEL_INVITE_LINK,
-                                  "channel": "Title of @test_channel"}
+    assert r.json()["detail"] == {"error": "not_subscribed", "join_link": "https://t.me/+testInvite",
+                                  "channel": "Test Channel"}
 
 
 # --- API ------------------------------------------------------------------------

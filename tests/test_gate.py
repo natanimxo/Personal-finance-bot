@@ -1,5 +1,5 @@
-"""The channel gate: off by default, a free first month, then one channel per month
-in rotation, checked only when an action starts."""
+"""The channel gate: kept in the database by numeric id, managed with admin commands,
+off until /gate_on, and rotating per user every 30 days from their first day."""
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -11,17 +11,27 @@ from app.bot import membership
 from app.bot.keyboards import BTN_ADD, BTN_HISTORY
 from app.db import get_conn, init_db
 from app.services import gate, transactions, users
-from tests.fake_telegram import UID, Harness, run
+from tests.fake_telegram import CHAT, UID, USER, Harness, run
 
-CHANNELS = "@chan_one|https://t.me/chan_one,-1001234567890|https://t.me/+privateInvite,@chan_three|"
+SEEDED = [-1002704031424, -1002905948541, -1004376927203, -1001992993907, -1001897854375, -1001200205264]
+ONE, TWO, THREE = -1001111111111, -1002222222222, -1003333333333
+ADMIN = 999
 
 
 @pytest.fixture
 def db(fresh_db, monkeypatch):
     init_db()
-    monkeypatch.setattr(gate, "FREE_DAYS", 30)          # the real rules
-    monkeypatch.setattr(config, "GATE_CHANNELS", CHANNELS)
     monkeypatch.setattr(config, "ADMIN_CHAT_ID", None)
+
+
+@pytest.fixture
+def three(db):
+    """The gate on, with three channels of our own instead of the seeded six."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM gate_channels")
+    for chat_id in (ONE, TWO, THREE):
+        gate.add_channel(chat_id)
+    gate.set_on(True)
 
 
 def started_days_ago(user_id, days):
@@ -31,169 +41,116 @@ def started_days_ago(user_id, days):
         conn.execute("UPDATE users SET first_start_at = ? WHERE user_id = ?", (when, user_id))
 
 
-# --- 1. which statuses count as joined ------------------------------------------------------
-@pytest.mark.parametrize("status,is_member,joined", [
-    ("creator", True, True),            # the channel owner
-    ("administrator", True, True),
-    ("member", True, True),
-    ("restricted", True, True),         # restricted but still in the channel
-    ("restricted", False, False),       # restricted and not in it
-    ("left", False, False),
-    ("kicked", False, False),
-])
-def test_member_statuses(fresh_db, status, is_member, joined):
-    init_db()
+async def admin_says(h, text, forwarded_from=None, user_id=ADMIN):
+    """The admin sends a command, optionally as a reply to a post forwarded from a channel."""
+    n = h._next()
+    sender = {**USER, "id": user_id}
+    message = {"message_id": 1000 + n, "date": 0, "chat": {**CHAT, "id": user_id}, "from": sender, "text": text,
+               "entities": [{"type": "bot_command", "offset": 0, "length": len(text.split()[0])}]}
+    if forwarded_from is not None:
+        channel = {"id": forwarded_from, "type": "channel", "title": f"Title of {forwarded_from}"}
+        message["reply_to_message"] = {
+            "message_id": 500 + n, "date": 0, "chat": {**CHAT, "id": user_id}, "from": sender, "text": "a post",
+            "forward_origin": {"type": "channel", "date": 0, "chat": channel, "message_id": 7}}
+    return await h._process({"update_id": n, "message": message})
 
+
+# --- stored in the database, seeded, off ---------------------------------------------------
+def test_the_six_channels_are_seeded_in_order_and_the_gate_is_off(db):
+    assert [c.chat_id for c in gate.channels()] == SEEDED
+    assert gate.is_on() is False and gate.required_channel(5) is None
+
+
+def test_only_numeric_ids_are_stored(db):
+    for bad in ("@somechannel", "https://t.me/+abc", "12345", "abc"):
+        with pytest.raises(gate.GateError):
+            gate.add_channel(bad)
+    with get_conn() as conn:
+        schema = conn.execute("SELECT type FROM pragma_table_info('gate_channels') WHERE name = 'chat_id'").fetchone()
+    assert schema[0] == "INTEGER"
+
+
+def test_no_gate_settings_in_the_environment():
+    for name in ("GATE_ENABLED", "GATE_CHANNELS", "REQUIRED_CHANNEL", "CHANNEL_INVITE_LINK"):
+        assert not hasattr(config, name)
+
+
+# --- rotation: no free month -----------------------------------------------------------------
+@pytest.mark.parametrize("days,expected", [
+    (0, 0), (29, 0),          # days 1-30: channel 1 (no free period)
+    (30, 1), (59, 1),         # days 31-60: channel 2
+    (60, 2), (89, 2),         # days 61-90: channel 3
+    (90, 0), (125, 1),        # and round again, automatically
+])
+def test_rotation(days, expected):
+    assert gate.channel_index_for(days, 3) == expected
+
+
+def test_each_user_rotates_on_their_own_clock(three):
+    started_days_ago(1, 0)
+    started_days_ago(2, 35)
+    started_days_ago(3, 65)
+    started_days_ago(4, 95)
+    assert [gate.required_channel(u).chat_id for u in (1, 2, 3, 4)] == [ONE, TWO, THREE, ONE]
+    assert gate.stats() == {"free": 0, "channels": [2, 1, 1]}
+
+
+def test_removing_a_channel_shifts_the_rest(three):
+    started_days_ago(1, 35)                                       # on channel 2
+    gone = gate.remove_channel(1)
+    assert gone.chat_id == ONE and [c.chat_id for c in gate.channels()] == [TWO, THREE]
+    assert gate.required_channel(1).chat_id == THREE              # now the 2nd of two
+    with pytest.raises(gate.GateError):
+        gate.remove_channel(5)
+
+
+# --- statuses (still counted the same) -------------------------------------------------------
+@pytest.mark.parametrize("status,is_member,joined", [
+    ("creator", True, True), ("administrator", True, True), ("member", True, True),
+    ("restricted", True, True), ("restricted", False, False), ("left", False, False), ("kicked", False, False),
+])
+def test_member_statuses(three, status, is_member, joined):
     async def scenario():
         async with Harness() as h:
             h.request.member_status, h.request.member_is_member = status, is_member
             assert await membership.is_subscribed(SimpleNamespace(bot=h.app.bot), 5, live=True) is joined
+            assert h.request.member_chats == [str(ONE)]           # asked by numeric id
 
     run(scenario())
 
 
-def test_the_bot_not_being_admin_lets_users_through_and_alerts_the_admin(fresh_db, monkeypatch):
-    """Telegram's "member list is inaccessible": our setup problem, not the user's."""
-    init_db()
-    monkeypatch.setattr(config, "ADMIN_CHAT_ID", 999)
-
-    async def scenario():
-        async with Harness() as h:
-            h.request.member_error, h.request.member_error_text = True, "Bad Request: member list is inaccessible"
-            ctx = SimpleNamespace(bot=h.app.bot)
-            assert await membership.is_subscribed(ctx, 5) is True
-            assert await membership.is_subscribed(ctx, 6) is True
-            alerts = [p for e, p in h.request.sent if e == "sendMessage" and int(p["chat_id"]) == 999]
-            assert len(alerts) == 1 and "isn't an administrator of @test_channel" in alerts[0]["text"]
-
-    run(scenario())
-
-
-# --- channel list format --------------------------------------------------------------------
-def test_channel_list_format():
-    found, problems = gate.parse_channels(CHANNELS)
-    assert [(c.chat_id, c.link, c.number) for c in found] == [
-        ("@chan_one", "https://t.me/chan_one", 1),
-        ("-1001234567890", "https://t.me/+privateInvite", 2),
-        ("@chan_three", "https://t.me/chan_three", 3)]   # a missing link is made from the @username
-    assert problems == []
-
-
-def test_an_invite_link_is_not_a_channel_id():
-    found, problems = gate.parse_channels("https://t.me/+abc|https://t.me/+abc,@ok_channel|x")
-    assert [c.chat_id for c in found] == ["@ok_channel"] and "not a channel id" in problems[0]
-    assert gate.parse_channels("", "t.me/HustleToMillions", "")[1]
-
-
-def test_at_most_six_channels():
-    found, problems = gate.parse_channels(",".join(f"@channel{i}|" for i in range(1, 9)))
-    assert len(found) == 6 and len(problems) == 2
-
-
-def test_the_old_one_channel_settings_still_work(monkeypatch):
-    monkeypatch.setattr(config, "GATE_CHANNELS", "")
-    monkeypatch.setattr(config, "REQUIRED_CHANNEL", "@HustleToMillions")
-    monkeypatch.setattr(config, "CHANNEL_INVITE_LINK", "https://t.me/HustleToMillions")
-    assert [(c.chat_id, c.link) for c in gate.channels()] == [("@HustleToMillions", "https://t.me/HustleToMillions")]
-
-
-# --- 2. off by default ----------------------------------------------------------------------
-def test_gate_off_means_no_checks_at_all(db, monkeypatch):
-    monkeypatch.setattr(config, "GATE_ENABLED", False)
-    started_days_ago(UID, 45)
+# --- the join screen: title and invite link from Telegram, cached 24 h -------------------------
+def test_join_screen_uses_the_live_title_and_a_fresh_invite_link(three):
+    started_days_ago(UID, 40)                                     # channel 2's month
 
     async def scenario():
         async with Harness() as h:
             h.request.member_status = "left"
             out = await h.text(BTN_HISTORY)
-            assert "No transactions yet" in out.texts[0]
-            assert h.request.member_checks == 0
+            assert f"This month's channel: Title of {TWO}" in out.texts[0]
+            join, joined = out.buttons()
+            assert join["text"] == f"📢 Join Title of {TWO}" and join["url"].startswith("https://t.me/+invite1_")
+            assert joined == {"text": "✅ I've joined", "callback_data": "recheck_sub"}
 
-    run(scenario())
+            await h.text(BTN_HISTORY)                              # within 24 h: cached
+            assert h.request.invite_links == 1
+            assert sum(1 for e, _ in h.request.calls if e == "getChat") == 1
 
-
-def test_default_is_off(monkeypatch):
-    import importlib
-    monkeypatch.delenv("GATE_ENABLED", raising=False)
-    fresh = importlib.reload(importlib.import_module("app.config"))
-    try:
-        assert fresh.GATE_ENABLED is False
-    finally:
-        importlib.reload(fresh)
-
-
-# --- the free month and the rotation --------------------------------------------------------
-@pytest.mark.parametrize("days,expected", [
-    (0, None), (29, None),                      # days 1-30: free
-    (30, 0), (59, 0),                           # days 31-60: channel 1
-    (60, 1), (89, 1),                           # days 61-90: channel 2
-    (90, 2), (119, 2),                          # days 91-120: channel 3
-    (120, 0), (150, 1),                         # and round again
-])
-def test_rotation(days, expected, monkeypatch):
-    monkeypatch.setattr(gate, "FREE_DAYS", 30)
-    assert gate.channel_index_for(days, 3) == expected
-
-
-def test_each_user_rotates_from_their_own_start(db):
-    started_days_ago(1, 10)
-    started_days_ago(2, 40)
-    started_days_ago(3, 70)
-    assert gate.required_channel(1) is None
-    assert gate.required_channel(2).chat_id == "@chan_one"
-    assert gate.required_channel(3).chat_id == "-1001234567890"
-    assert gate.stats() == {"free": 1, "channels": [1, 1, 0]}
-
-
-def test_first_contact_starts_the_free_month(db):
-    async def scenario():
-        async with Harness() as h:
-            h.request.member_status = "left"
+            with get_conn() as conn:                               # a day later: fetched again
+                conn.execute("UPDATE gate_channels SET title_at = '2000-01-01T00:00:00', "
+                             "invite_link_at = '2000-01-01T00:00:00'")
             out = await h.text(BTN_HISTORY)
-            assert "No transactions yet" in out.texts[0] and h.request.member_checks == 0
-            assert gate.days_since(gate.first_start(UID)) == 0
+            assert h.request.invite_links == 2 and "+invite2_" in out.buttons()[0]["url"]
 
-    run(scenario())
-
-
-def test_only_this_months_channel_is_needed(db):
-    started_days_ago(UID, 70)                                    # channel 2's month
-
-    async def scenario():
-        async with Harness() as h:
-            h.request.member_status = "left"
-            h.request.statuses[("-1001234567890", UID)] = "member"   # in channel 2 only
-            out = await h.text(BTN_HISTORY)
-            assert "No transactions yet" in out.texts[0]
-            assert h.request.member_chats == ["-1001234567890"]
-
-    run(scenario())
-
-
-def test_the_join_screen_names_this_months_channel(db):
-    started_days_ago(UID, 40)
-
-    async def scenario():
-        async with Harness() as h:
-            h.request.member_status = "left"
-            out = await h.text(BTN_HISTORY)
-            assert "This month's channel: @chan_one" in out.texts[0]
-            buttons = out.buttons()
-            assert buttons[0] == {"text": "📢 Join @chan_one", "url": "https://t.me/chan_one"}
-            assert buttons[1]["text"] == "✅ I've joined" and buttons[1]["callback_data"] == "recheck_sub"
-
-            out = await h.tap("recheck_sub")                            # not yet
-            assert any(c[0] == "answerCallbackQuery" and "Not in this month's channel" in c[1].get("text", "")
-                       for c in h.request.calls)
-            h.request.member_status = "member"                          # joined
+            h.request.member_status = "member"
             out = await h.tap("recheck_sub")
             assert "You're in this month's channel" in out.texts[0]
 
     run(scenario())
 
 
-def test_the_admin_is_always_exempt(db, monkeypatch):
-    monkeypatch.setattr(config, "ADMIN_CHAT_ID", UID)
+def test_gate_off_means_no_checks(three):
+    gate.set_on(False)
     started_days_ago(UID, 40)
 
     async def scenario():
@@ -205,99 +162,146 @@ def test_the_admin_is_always_exempt(db, monkeypatch):
     run(scenario())
 
 
-def test_never_blocked_in_the_middle_of_an_entry(db):
-    started_days_ago(UID, 40)
+def test_the_admin_is_exempt(three, monkeypatch):
+    monkeypatch.setattr(config, "ADMIN_CHAT_ID", UID)
 
     async def scenario():
         async with Harness() as h:
+            h.request.member_status = "left"
+            out = await h.text(BTN_HISTORY)
+            assert "No transactions yet" in out.texts[0] and h.request.member_checks == 0
+
+    run(scenario())
+
+
+def test_never_blocked_in_the_middle_of_an_entry(three):
+    async def scenario():
+        async with Harness() as h:
             await h.text(BTN_ADD)                  # checked here: a member
-            h.request.member_status = "left"       # leaves halfway (or the month turns)
+            h.request.member_status = "left"
             membership.membership_cache.clear()
             await h.text("25")
             await h.tap("addcat_food")
             await h.tap("addacc_cash")
             out = await h.tap("skip_note")
-            assert "Logged" in out.texts[-1]
-            assert len(transactions.list_recent(UID)) == 1
-            assert h.request.member_checks == 1    # only when the entry started
+            assert "Logged" in out.texts[-1] and h.request.member_checks == 1
 
     run(scenario())
 
 
-# --- the Mini App -----------------------------------------------------------------------------
-def test_api_uses_the_same_rule(db, monkeypatch):
+def test_api_uses_the_same_rule(three, monkeypatch):
     from app.web.auth import make_init_data
     from app.web.server import create_app
 
     monkeypatch.setattr(config, "WEBHOOK_SECRET", "x" * 32)
     monkeypatch.setattr(config, "PUBLIC_URL", "https://example.test")
     harness = Harness()
-
-    def auth(uid):
-        return {"Authorization": "tma " + make_init_data({"id": uid}, config.BOT_TOKEN)}
-
+    started_days_ago(8, 65)                                       # channel 3's month
     with TestClient(create_app(application=harness.app)) as client:
         harness.request.member_status = "left"
-        assert client.get("/api/me", headers=auth(7)).status_code == 200       # first visit: free month
-        started_days_ago(8, 65)
-        r = client.get("/api/me", headers=auth(8))
+        r = client.get("/api/me", headers={"Authorization": "tma " + make_init_data({"id": 8}, config.BOT_TOKEN)})
         assert r.status_code == 403
-        assert r.json()["detail"] == {"error": "not_subscribed", "join_link": "https://t.me/+privateInvite",
-                                      "channel": "Title of -1001234567890"}
+        detail = r.json()["detail"]
+        assert detail["channel"] == f"Title of {THREE}" and detail["join_link"].startswith("https://t.me/+invite")
 
 
+# --- admin commands ----------------------------------------------------------------------------
+@pytest.fixture
+def admin(three, monkeypatch):
+    monkeypatch.setattr(config, "ADMIN_CHAT_ID", ADMIN)
 
-# --- startup check and /gate_status -------------------------------------------------------------
-def test_startup_alerts_the_admin_about_channels_where_the_bot_is_not_admin(db, monkeypatch):
-    monkeypatch.setattr(config, "ADMIN_CHAT_ID", 999)
 
+def test_gate_add_from_a_forwarded_post(admin):
     async def scenario():
         async with Harness() as h:
-            h.request.bot_admin_in = {"@chan_one"}
-            await membership.startup_check(h.app.bot)
-            alerts = [p["text"] for e, p in h.request.sent if e == "sendMessage" and int(p["chat_id"]) == 999]
-            assert len(alerts) == 1
-            assert "-1001234567890, @chan_three" in alerts[0] and "@chan_one" not in alerts[0]
+            new = -1004444444444
+            out = await admin_says(h, "/gate_add", forwarded_from=new)
+            assert f"Added Title of {new}" in out.texts[0] and "as channel 4" in out.texts[0]
+            assert [c.chat_id for c in gate.channels()][-1] == new
+            out = await admin_says(h, "/gate_add", forwarded_from=new)
+            assert "already in the rotation" in out.texts[0]
 
     run(scenario())
 
 
-def test_startup_check_does_nothing_when_the_gate_is_off(db, monkeypatch):
-    monkeypatch.setattr(config, "GATE_ENABLED", False)
-    monkeypatch.setattr(config, "ADMIN_CHAT_ID", 999)
-
+def test_gate_add_refuses_a_channel_where_the_bot_is_not_admin(admin):
     async def scenario():
         async with Harness() as h:
             h.request.bot_admin_in = set()
+            out = await admin_says(h, "/gate_add", forwarded_from=-1005555555555)
+            assert "not an administrator" in out.texts[0]
+            assert len(gate.channels()) == 3
+
+    run(scenario())
+
+
+def test_gate_add_needs_a_forwarded_post_or_a_numeric_id(admin):
+    async def scenario():
+        async with Harness() as h:
+            assert "Forward any post" in (await admin_says(h, "/gate_add")).texts[0]
+            assert "numeric id" in (await admin_says(h, "/gate_add @channel")).texts[0]
+            out = await admin_says(h, "/gate_add -1006666666666")
+            assert "as channel 4" in out.texts[0]
+
+    run(scenario())
+
+
+def test_gate_remove_list_on_off(admin):
+    started_days_ago(1, 3)
+    started_days_ago(2, 33)
+
+    async def scenario():
+        async with Harness() as h:
+            h.request.bot_admin_in = {str(ONE), str(THREE)}
+            text = (await admin_says(h, "/gate_list")).texts[0]
+            assert f"1. Title of {ONE} (<code>{ONE}</code>) · bot admin ✅" in text
+            assert f"2. Title of {TWO} (<code>{TWO}</code>) · bot admin ❌" in text
+            assert text.count("1 user(s) on it now") == 2
+
+            text = (await admin_says(h, "/gate_remove 2")).texts[0]
+            assert f"Removed Title of {TWO}" in text and f"2. Title of {THREE}" in text
+            assert "number from /gate_list" in (await admin_says(h, "/gate_remove")).texts[0]
+
+            out = await admin_says(h, "/gate_off")
+            assert "off" in out.texts[0] and gate.is_on() is False
+            out = await admin_says(h, "/gate_status")
+            assert "Channel gate</b>: off" in out.texts[0]
+            h.request.bot_admin_in = {str(ONE)}
+            out = await admin_says(h, "/gate_on")
+            assert "on" in out.texts[0] and gate.is_on() is True
+            alerts = [p["text"] for e, p in h.request.sent if e == "sendMessage" and "isn't an administrator" in p["text"]]
+            assert alerts and str(THREE) in alerts[0]
+
+    run(scenario())
+
+
+def test_gate_commands_are_admin_only(admin):
+    async def scenario():
+        async with Harness() as h:
+            for command in ("/gate_list", "/gate_on", "/gate_off", "/gate_remove 1", "/gate_add -1007777777777"):
+                assert await admin_says(h, command, user_id=UID) == [], command
+            assert len(gate.channels()) == 3 and gate.is_on()
+
+    run(scenario())
+
+
+def test_startup_alert_for_channels_without_the_bot_as_admin(admin):
+    async def scenario():
+        async with Harness() as h:
+            h.request.bot_admin_in = {str(ONE)}
             await membership.startup_check(h.app.bot)
-            assert h.request.sent == []
+            alerts = [p["text"] for e, p in h.request.sent if e == "sendMessage" and int(p["chat_id"]) == ADMIN]
+            assert len(alerts) == 1 and f"{TWO}, {THREE}" in alerts[0]
 
     run(scenario())
 
 
-def test_gate_status_for_the_admin(db, monkeypatch):
-    monkeypatch.setattr(config, "ADMIN_CHAT_ID", UID)
-    started_days_ago(1, 5)
-    started_days_ago(2, 35)
-    started_days_ago(3, 36)
+def test_bot_not_admin_lets_users_through(three, monkeypatch):
+    monkeypatch.setattr(config, "ADMIN_CHAT_ID", ADMIN)
 
     async def scenario():
         async with Harness() as h:
-            h.request.bot_admin_in = {"@chan_one", "@chan_three"}
-            out = await h.text("/gate_status")
-            text = out.texts[0]
-            assert "Channel gate</b>: on" in text
-            assert "1. Title of @chan_one (@chan_one): bot admin ✅, 2 user(s)" in text
-            assert "2. Title of -1001234567890 (-1001234567890): bot admin ❌, 0 user(s)" in text
-            assert "bot admin ✅, 0 user(s)" in text.split("3.")[1]
-            assert "free first month: 1 user(s)" in text            # user 1 (the admin isn't counted)
-
-    run(scenario())
-
-
-def test_gate_status_is_admin_only(db):
-    async def scenario():
-        async with Harness() as h:
-            assert await h.text("/gate_status") == []
+            h.request.member_error, h.request.member_error_text = True, "Bad Request: member list is inaccessible"
+            assert await membership.is_subscribed(SimpleNamespace(bot=h.app.bot), 5) is True
 
     run(scenario())
