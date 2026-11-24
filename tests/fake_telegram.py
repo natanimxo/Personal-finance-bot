@@ -52,6 +52,8 @@ class FakeRequest(BaseRequest):
         self.bot_admin_in = None       # chats where the bot (id 1) is admin; None = everywhere
         self.member_chats = []         # chat_id of every getChatMember call
         self.invite_links = 0          # createChatInviteLink calls
+        self.no_invite_in = set()      # chats where the bot lacks "Invite users via link"
+        self.revoked = set()           # invite links that were revoked
         self.member_checks = 0
         self.forbidden_chats = set()   # chats that blocked the bot
         self.rate_limit = rate_limit   # max sendMessage calls in any 1 s window, like Telegram
@@ -85,10 +87,18 @@ class FakeRequest(BaseRequest):
             result = {"file_id": file_id, "file_unique_id": file_id, "file_size": len(self.files[file_id]),
                       "file_path": file_id}
         elif endpoint == "createChatInviteLink":
+            if str(params["chat_id"]) in self.no_invite_in:
+                return 400, json.dumps({"ok": False, "error_code": 400,
+                                        "description": "Bad Request: not enough rights to manage chat invite link"}).encode()
             self.invite_links += 1
             result = {"invite_link": f"https://t.me/+invite{self.invite_links}_{params['chat_id']}",
-                      "creator": {"id": 1, "is_bot": True, "first_name": "Bot"}, "creates_join_request": False,
-                      "is_primary": False, "is_revoked": False}
+                      "name": params.get("name"), "creator": {"id": 1, "is_bot": True, "first_name": "Bot"},
+                      "creates_join_request": False, "is_primary": False, "is_revoked": False}
+        elif endpoint == "editChatInviteLink":
+            link = params["invite_link"]
+            result = {"invite_link": link, "name": params.get("name"), "creates_join_request": False,
+                      "creator": {"id": 1, "is_bot": True, "first_name": "Bot"}, "is_primary": False,
+                      "is_revoked": link in self.revoked}
         elif endpoint == "getChat":
             chat_id = str(params["chat_id"])
             result = {"id": -1001000000000, "type": "channel", "title": f"Title of {chat_id}",
@@ -100,6 +110,7 @@ class FakeRequest(BaseRequest):
                     return 400, json.dumps({"ok": False, "error_code": 400,
                                             "description": "Bad Request: member list is inaccessible"}).encode()
                 result = member_payload("administrator", True, {"id": 1, "is_bot": True, "first_name": "Bot"})
+                result["can_invite_users"] = chat_id not in self.no_invite_in
             else:
                 self.member_checks += 1
                 self.member_chats.append(chat_id)
@@ -199,6 +210,16 @@ class Harness:
         message = {"message_id": 1000 + n, "date": 0, "chat": CHAT, "from": USER,
                    "location": {"latitude": latitude, "longitude": longitude}}
         return await self._process({"update_id": n, "message": message})
+
+    async def channel_member(self, chat_id: int, user_id: int, old: str, new: str):
+        """A chat_member update: user_id went from status `old` to `new` in a channel."""
+        n = self._next()
+        user = {**USER, "id": user_id}
+        change = {"chat": {"id": chat_id, "type": "channel", "title": f"Title of {chat_id}"},
+                  "from": user, "date": 0,
+                  "old_chat_member": member_payload(old, old == "member", user),
+                  "new_chat_member": member_payload(new, new == "member", user)}
+        return await self._process({"update_id": n, "chat_member": change})
 
     async def tap(self, data):
         n = self._next()

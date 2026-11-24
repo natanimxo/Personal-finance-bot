@@ -184,12 +184,16 @@
     tabs.hidden = true;
     setMainButton(null);
     if (err instanceof ApiError && err.status === 403 && err.body && err.body.detail && err.body.detail.error === "not_subscribed") {
-      const link = err.body.detail.join_link;
-      const name = err.body.detail.channel || "the channel";
+      const d = err.body.detail;
+      const link = d.join_link;
+      const name = d.channel || "the channel";
+      const days = d.days_left ? ` (${d.days_left} more day${d.days_left === 1 ? "" : "s"})` : "";
       screen.replaceChildren(h("div", { class: "state" },
         h("div", { class: "big" }, "🔒"),
-        h("h1", {}, `This month's channel: ${name}`),
-        h("p", {}, "Your free first month is over. The tracker stays free: each month, just be in that month's channel. It changes every month, and you only need the current one."),
+        h("h1", {}, d.left ? `You left ${name}` : `This period's channel: ${name}`),
+        h("p", {}, d.left
+          ? `Rejoin to keep using the tracker. It's your channel for this period${days}. Your entries are all still here.`
+          : `The tracker is free. Every 30 days there's one channel to be in, and this is yours for this period${days}. You only need the current one.`),
         link ? h("button", { class: "btn", onclick: () => (insideTelegram ? tg.openTelegramLink(link) : window.open(link)) }, `📢 Join ${name}`) : null,
         h("p", {}, h("button", { class: "btn secondary", onclick: () => boot() }, "✅ I've joined"))));
       return;

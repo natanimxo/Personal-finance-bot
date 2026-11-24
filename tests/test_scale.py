@@ -115,9 +115,14 @@ def test_telegram_error_uses_last_known_result(db):
             out = await h.text(BTN_HISTORY)
             assert "No transactions yet" in out.texts[0]   # not locked out
 
-            membership.membership_cache.clear()        # nothing known about them
+            membership.membership_cache.clear()        # nothing known about them: still not blocked
             out = await h.text(BTN_HISTORY)
-            assert "This month's channel" in out.texts[0]
+            assert "No transactions yet" in out.texts[0]
+
+            h.request.member_error = False             # Telegram answers again: they left
+            h.request.member_status = "left"
+            out = await h.text(BTN_HISTORY)
+            assert "channel" in out.texts[0] and "No transactions" not in out.texts[0]
 
     run(scenario())
 
