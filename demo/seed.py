@@ -250,6 +250,34 @@ def make_items(today: date, start: date, rng: random.Random) -> list:
     return items
 
 
+BUDGET_LIMITS = {"food": 1500, "transport": 750, "shopping": 225}      # monthly limits in USD terms
+BUDGET_USED = {"food": 0.70, "transport": 0.40, "shopping": 0.96}      # how much of each this month shows
+
+
+def fit_budgets(items: list, today: date) -> bool:
+    """Nudge this month's food / transport / shopping so the tidy limits show 70% / 40% / 96% used.
+
+    Works on whatever day it is run, as long as the month has enough spending to scale (otherwise
+    False: the limits are then derived from the spending instead). Amounts are in base (USD) units.
+    """
+    groups = {}
+    for item in items:
+        if item["type"] == "expense" and months_back(item["day"], today) == 0 and item["category"] in BUDGET_LIMITS:
+            groups.setdefault(item["category"], []).append(item)
+    factors = {}
+    for category, rows in groups.items():
+        total = sum(r["amount"] for r in rows)
+        factors[category] = BUDGET_LIMITS[category] * BUDGET_USED[category] / total if total else 0
+    if set(factors) != set(BUDGET_LIMITS) or not all(0.75 <= f <= 1.3 for f in factors.values()):
+        return False
+    for category, rows in groups.items():
+        target = round(BUDGET_LIMITS[category] * BUDGET_USED[category], 2)
+        for r in rows:
+            r["amount"] = round(r["amount"] * factors[category], 2)
+        rows[-1]["amount"] = round(rows[-1]["amount"] + target - sum(r["amount"] for r in rows), 2)
+    return True
+
+
 def build(today: date, currency: str = "USD", rng_seed: int = 7, scale: float = None, timezone: str = None,
           user_id: int = None, reset: bool = True) -> dict:
     """Create the demo data in config.DB_PATH. Returns a summary (used by the tests)."""
@@ -295,6 +323,7 @@ def build(today: date, currency: str = "USD", rng_seed: int = 7, scale: float = 
         start = start_date(today)
         items = make_items(today, start, rng)
         items.sort(key=lambda i: (i["day"], 0 if i["type"] == "income" else 1))
+        round_limits = fit_budgets(items, today)
 
         def money(base):
             return amount_minor(base, scale)
@@ -343,7 +372,12 @@ def build(today: date, currency: str = "USD", rng_seed: int = 7, scale: float = 
         targets = {"food": (0.70, 0.60, 0.80), "shopping": (0.95, 0.90, 0.99), "transport": (0.40, 0.33, 0.47)}
         limits = {}
         for category, (aim, low, high) in targets.items():
-            have = spent.get(category, 0)
+            if round_limits:                                # the tidy limits: 1,500 / 750 / 225 (times the scale)
+                limit = amount_minor(BUDGET_LIMITS[category], scale) // 100
+                limits[category] = limit
+                budgets.set_limit(user_id, category, limit * 100)
+                continue
+            have = spent.get(category, 0)                   # too little spent so far this month: derive the limit
             unit = 10 ** max(0, int(math.floor(math.log10(max(have / 100 * 0.03, 1)))))
             limit = max(unit, round(have / 100 / aim / unit) * unit)
             while have / 100 / limit > high:

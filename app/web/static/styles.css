@@ -152,3 +152,16 @@ body.has-fallback main { padding-bottom: 80px; }
 
 /* Accounts, opened from Settings */
 .link.back { border: 0; background: none; color: var(--link); padding: 4px 0; font-size: 15px; cursor: pointer; }
+
+/* Budget warning (80% or more) */
+.banner { background: color-mix(in srgb, var(--warn) 16%, var(--section-bg)); border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
+  color: var(--text); border-radius: var(--radius); padding: 12px 14px; margin: 12px 0; font-weight: 600; font-size: 14px; }
+.banner > div + div { margin-top: 6px; }
+
+/* Empty date filters show "From" / "To" instead of the browser's mm/dd/yyyy */
+.date-field { position: relative; display: block; min-width: 0; }
+.date-field .input { min-width: 0; }
+.date-field:not(.filled) input::-webkit-datetime-edit { color: transparent; }
+.date-field .date-placeholder { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--hint);
+  pointer-events: none; }
+.date-field.filled .date-placeholder { display: none; }

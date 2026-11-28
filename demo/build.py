@@ -27,7 +27,7 @@ def check_playwright():
         import playwright  # noqa: F401
     except ImportError:
         raise SystemExit("Playwright isn't installed. Run:\n  pip install -r demo/requirements.txt\n"
-                         "  python -m playwright install ffmpeg")
+                         "  and a full ffmpeg (winget install Gyan.FFmpeg) for the MP4 clips")
 
 
 def seed(args):
@@ -54,7 +54,7 @@ def make_zip():
         ARCHIVE.unlink()
     with zipfile.ZipFile(ARCHIVE, "w", zipfile.ZIP_DEFLATED) as z:
         for path in sorted(OUTPUT.rglob("*")):
-            if path.is_file() and ".recording" not in path.parts:
+            if path.is_file() and not any(part.startswith((".", "clip-")) for part in path.relative_to(OUTPUT).parts):
                 z.write(path, path.relative_to(OUTPUT).as_posix())
     return ARCHIVE
 

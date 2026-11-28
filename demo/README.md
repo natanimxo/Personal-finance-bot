@@ -9,12 +9,12 @@ data is read or written.
 
 ```powershell
 pip install -r demo/requirements.txt
-python -m playwright install ffmpeg      # once: the small video encoder
+winget install Gyan.FFmpeg               # once: a full ffmpeg with H.264 (macOS: brew install ffmpeg)
 python demo/build.py
 ```
 
 It seeds the demo data, starts the demo web app, takes the screenshots, builds the frames,
-records the clips and zips everything to **`demo/promo-assets.zip`** (about 3–6 minutes; the
+records the clips and zips everything to **`demo/promo-assets.zip`** (about 5–8 minutes; the
 clips take most of it). It uses your installed Chrome or Edge; with neither, run
 `python -m playwright install chromium` first.
 
@@ -34,18 +34,20 @@ Options (all optional):
 | Folder | Contents |
 | --- | --- |
 | `raw/<light or dark>/` | 1170×2532 PNGs (a 390×844 phone at 3×): `home_month`, `home_week`, `transactions`, `transactions_filtered`, `add_expense`, `budgets`, `income`, `settings` |
-| `frames/<light or dark>/` | 1080×1920 vertical frames for Reels, TikTok and Shorts: a screenshot in a plain rounded phone on a gradient, with a headline: `home` "See where your money goes", `add` "Log expenses in seconds", `budgets` "Get warned before you overspend", `income` "Track every income source", `transactions` "Find any transaction instantly", `settings` "Any currency. Any timezone." |
-| `clips/` | 5–10 second phone-sized `.webm` videos in both themes: `add_expense` (typing an expense and saving), `home_week_month` (switching the period), `budget_near_limit` (opening the budget at about 95%). A faint ring shows each tap |
+| `frames/<light or dark>/` | 1080×1920 vertical frames for Reels, TikTok and Shorts: a screenshot in a plain rounded phone on a gradient, with a headline: `home` "See where your money goes", `add` "Log expenses in seconds", `budgets` "Get warned before you overspend", `income` "Track every income source", `transactions` "Find any transaction fast", `settings` "Any currency. Any timezone." Plus `intro` (logo, "Wallet Buddy", "Your money, sorted. Right inside Telegram.") and `cta` ("Free on Telegram", the bot's @name, "Search it or tap the link in bio") |
+| `clips/raw/` | 7–10 second phone-sized H.264 `.mp4` videos (780×1688, the app fills the whole frame) in both themes: `add_expense` (typing an expense and saving), `home_week_month` (switching the period), `budget_near_limit` (the budgets screen with its warning banner, opening the budget at about 96%). A faint ring shows each tap |
+| `clips/framed/` | The same clips as 1080×1920 `.mp4`, inside the same phone, gradient and headline as the still frames |
 
-The headlines are in `demo/frames.py` (`FRAMES`), the demo story in `demo/seed.py`.
+The headlines are in `demo/frames.py` (`FRAMES`) and `demo/clips.py` (`HEADLINES`), the demo story in `demo/seed.py`, the logo in `demo/assets/logo.png`.
 
 ## The demo data
 
 One user, USD, about three months ending today: a 3,200 salary and 1,100 rent on the 1st,
 a few freelance payments (250–600), one gift, coffee and lunches on weekdays, groceries and
 dinners out at weekends, two subscriptions (Netflix, Spotify) and bills. Full months end with
-a savings rate of about 18–25%. Budgets are set so Food is about 70% used, Shopping about 95%
-(its bar turns amber) and Transport about 40%, on whatever day you run it. Accounts are Cash,
+a savings rate of about 18–25%. Budgets are round numbers (Food 1,500, Transport 750, Shopping 225), and the month's spending
+is fitted so Food is about 70% used, Shopping about 96% (its bar turns amber and the app shows
+"⚠️ You've used 96% of your Shopping budget") and Transport about 40%, on whatever day you run it. Accounts are Cash,
 Bank, Card and Mobile Wallet with sensible balances (ATM withdrawals, wallet top-ups, the
 card paid off weekly).
 

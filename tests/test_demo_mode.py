@@ -219,9 +219,14 @@ def test_every_month_ends_positive_with_a_savings_rate_of_about_a_fifth(seeded):
 def test_budgets_food_70_shopping_95_transport_40(seeded):
     used = seeded["usd"]["summary"]["budget_percent"]           # measured while "today" was pinned
     assert 65 <= used["food"] <= 75
-    assert 90 <= used["shopping"] < 100 and used["shopping"] >= 80   # the amber warning shows
+    assert 94 <= used["shopping"] <= 98                                  # about 96%: the warning banner shows
     assert 35 <= used["transport"] <= 45
     assert set(seeded["usd"]["budgets"]) >= {"food", "shopping", "transport"}
+
+
+def test_budget_limits_are_round_numbers(seeded):
+    limits = {c: b["limit_minor"] // 100 for c, b in seeded["usd"]["budgets"].items() if b["limit_minor"]}
+    assert limits == {"food": 1500, "transport": 750, "shopping": 225}
 
 
 def test_accounts_have_sensible_balances(seeded):
@@ -270,3 +275,39 @@ def test_the_demo_has_one_command_and_a_readme():
     assert "python demo/build.py" in text and "refuses to start" in text
     for name in ("seed.py", "screens.py", "frames.py", "clips.py", "build.py", "server.py", "requirements.txt"):
         assert (ROOT / "demo" / name).exists(), name
+
+
+# --- what the promo asks of the app and the frames ---------------------------------------------------
+STATIC = ROOT / "app" / "web" / "static"
+
+
+def test_the_app_warns_when_a_budget_is_at_80_percent_or_more():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "function budgetBanner" in js and ">= 0.8" in js
+    assert "You've used ${pct}% of your ${name} budget" in js
+    assert js.count("budgetBanner(") >= 3                                  # defined, Home and Budgets
+    assert ".banner" in (STATIC / "styles.css").read_text(encoding="utf-8")
+
+
+def test_empty_date_filters_show_from_and_to():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+    assert 'class: "date-placeholder"' in js and 'label.replace(" date", "")' in js
+    assert "-webkit-datetime-edit" in css
+
+
+def test_the_frames_have_the_new_headline_and_the_intro_and_cta_frames():
+    from demo import frames
+    heads = {name: head for name, _, head in frames.FRAMES}
+    assert heads["transactions"] == "Find any transaction fast"
+    intro, cta = (frames.text_frame_html("light", k) for k in ("intro", "cta"))
+    assert "Wallet Buddy" in intro and "Your money, sorted." in intro and "Right inside Telegram." in intro
+    assert "Free on Telegram" in cta and "@Wallet_buddy_bot" in cta and "Search it or tap the link in bio" in cta
+    assert (ROOT / "demo" / "assets" / "logo.png").exists()
+
+
+def test_clips_are_mp4_h264_in_two_sizes():
+    from demo import clips
+    assert clips.VIDEO_SCALE == 2 and set(clips.HEADLINES) == set(clips.CLIPS)
+    source = (ROOT / "demo" / "clips.py").read_text(encoding="utf-8")
+    assert "libx264" in source and ".mp4" in source and "framed" in source and "raw" in source
