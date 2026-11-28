@@ -1,0 +1,4 @@
+# For the promo screenshots and clips (everything else is the app's own requirements.txt).
+# After installing, fetch the small video encoder once:  python -m playwright install ffmpeg
+# The browser is your installed Chrome or Edge; if you have neither:  python -m playwright install chromium
+playwright>=1.45

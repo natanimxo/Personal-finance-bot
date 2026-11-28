@@ -82,6 +82,9 @@ async def stop_bot(application, mode: str):
 
 def create_app(application=None) -> FastAPI:
     """`application` lets tests pass a bot wired to a fake Telegram."""
+    if config.DEMO_MODE:   # local promo demo: web app only (app/web/demo.py)
+        from app.web.demo import create_demo_app
+        return create_demo_app()
 
     @asynccontextmanager
     async def lifespan(web: FastAPI):

@@ -14,3 +14,11 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+
+# Demo mode (promo screenshots and clips): the scripts are committed, never the output
+demo/demo.db
+demo/demo.db-wal
+demo/demo.db-shm
+demo/backups/
+demo/output/
+demo/promo-assets.zip

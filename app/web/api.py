@@ -31,6 +31,9 @@ class CurrentUser(SimpleNamespace):
 
 
 async def current_user(request: Request, authorization: str = Header(default="")) -> CurrentUser:
+    if config.DEMO_MODE:   # local promo demo: always the one demo user, no sign-in, no channel gate
+        periods.set_zone(await db_call(periods.user_zone_name, config.DEMO_USER_ID), config.DEMO_USER_ID)
+        return CurrentUser(id=config.DEMO_USER_ID, first_name="Alex", username="alex_demo")
     scheme, _, init_data = authorization.partition(" ")
     if scheme.lower() != "tma" or not init_data:
         raise HTTPException(401, detail={"error": t("api.open_from_telegram")})
