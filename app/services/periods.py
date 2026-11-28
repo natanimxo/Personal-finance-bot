@@ -81,8 +81,28 @@ def in_user_zone(fn):
     return wrapper
 
 
+# Demo mode only: a pinned "now", so screenshots and seeded data never depend on the run date.
+FROZEN_NOW = None
+
+
+def utcnow() -> datetime:
+    return FROZEN_NOW or datetime.now(timezone.utc)
+
+
+def freeze(day) -> None:
+    """Pin "now" to 15:00 UTC on `day` (a date, YYYY-MM-DD text or None to unpin): the same
+    calendar day in every timezone from the Americas to East Africa."""
+    global FROZEN_NOW
+    if day is None or day == "":
+        FROZEN_NOW = None
+        return
+    if isinstance(day, str):
+        day = date.fromisoformat(day)
+    FROZEN_NOW = datetime(day.year, day.month, day.day, 15, tzinfo=timezone.utc)
+
+
 def now_local(now: datetime = None) -> datetime:
-    now = now or datetime.now(timezone.utc)
+    now = now or utcnow()
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     return now.astimezone(tz())

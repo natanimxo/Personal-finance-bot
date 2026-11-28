@@ -96,6 +96,19 @@
     return w.level === "over" ? `Over budget on ${w.label}: ${used}` : `${w.percent}% of your ${w.label} budget used (${used})`;
   }
 
+  // A banner for every budget at 80% or more (the biggest first, at most three).
+  function budgetBanner(budgets) {
+    const hot = (budgets || []).filter((b) => b.limit_minor && b.spent_minor / b.limit_minor >= 0.8)
+      .sort((a, b) => b.spent_minor / b.limit_minor - a.spent_minor / a.limit_minor).slice(0, 3);
+    if (!hot.length) return null;
+    return h("div", { class: "banner", role: "alert" }, hot.map((b) => {
+      const pct = Math.round((b.spent_minor / b.limit_minor) * 100);
+      const name = b.label.replace(/^[^\p{L}\p{N}]+/u, "");   // the name without its emoji
+      return h("div", {}, pct > 100 ? `⚠️ You're over your ${name} budget (${pct}% used)`
+                                    : `⚠️ You've used ${pct}% of your ${name} budget`);
+    }));
+  }
+
   // ---------------------------------------------------------------- API
   class ApiError extends Error {
     constructor(status, body) {
@@ -265,6 +278,7 @@
 
     return h("div", {}, seg, quickForm, stats,
       h("h2", {}, "Spending by category"), spending,
+      budgetBanner(withLimits) ? h("div", { style: "margin-top:20px" }, budgetBanner(withLimits)) : null,
       h("h2", {}, "Budgets this month"), budgetList,
       h("h2", {}, "Account balances"), accounts);
   }
@@ -337,8 +351,10 @@
     const select = (name, label, options) => h("select", { class: "input", "aria-label": label,
       onchange: (e) => { filters[name] = e.target.value; go("transactions"); } },
       h("option", { value: "" }, label), options.map((o) => h("option", { value: o.key, selected: filters[name] === o.key }, o.label)));
-    const date = (name, label) => h("input", { class: "input", type: "date", value: filters[name], "aria-label": label, title: label,
-      onchange: (e) => { filters[name] = e.target.value; go("transactions"); } });
+    const date = (name, label) => h("label", { class: "date-field" + (filters[name] ? " filled" : "") },
+      h("input", { class: "input", type: "date", value: filters[name], "aria-label": label, title: label,
+        onchange: (e) => { filters[name] = e.target.value; go("transactions"); } }),
+      h("span", { class: "date-placeholder" }, label.replace(" date", "")));
 
     const filterBox = h("div", { class: "filters" },
       search, select("category", "All categories", cats),
@@ -575,9 +591,11 @@
   async function viewBudgets() {
     const data = await api("/api/budgets");
     const list = h("div", { class: "list" });
+    const banner = h("div");
     let open = null;
 
     function draw() {
+      banner.replaceChildren(...[budgetBanner(data.budgets)].filter(Boolean));
       list.replaceChildren(...data.budgets.map((b) => {
         const head = h("button", { class: "row", onclick: () => { open = open === b.category ? null : b.category; draw(); } },
           h("span", { class: "main" },
@@ -609,7 +627,7 @@
     }
     draw();
     return h("div", {}, h("h1", {}, "Budgets"),
-      h("p", { class: "hint" }, "Monthly limits per category. You're warned at 80% and when you go over."), list);
+      h("p", { class: "hint" }, "Monthly limits per category. You're warned at 80% and when you go over."), banner, list);
   }
 
   // ---------------------------------------------------------------- Accounts

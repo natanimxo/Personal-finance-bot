@@ -66,6 +66,13 @@ def check_storage():
 
 def main():
     """Serve the Mini App, API and webhook with uvicorn; the bot runs in the same event loop."""
+    if config.DEMO_MODE:   # only the web app, on this computer only (see demo/README.md)
+        import uvicorn
+
+        from app.web.server import create_app
+
+        uvicorn.run(create_app(), host="127.0.0.1", port=config.DEMO_PORT, log_level="warning")
+        return
     if not config.BOT_TOKEN:
         raise SystemExit("BOT_TOKEN is not set")
     import uvicorn

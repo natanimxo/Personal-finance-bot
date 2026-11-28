@@ -36,6 +36,35 @@ def _env(*names, default=""):
     return default
 
 
+# --- demo mode (local only) -------------------------------------------------------------------
+# DEMO_MODE=true runs ONLY the web app, against demo/demo.db, as one demo user, with no
+# Telegram sign-in check and no channel gate. It is for promo screenshots and clips, so it
+# refuses to start anywhere near production: see demo_problems().
+DEMO_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "demo", "demo.db")
+DEMO_USER_ID = 424242
+
+
+def demo_problems(environ) -> list:
+    """Why demo mode must not start with these environment variables ([] means it may)."""
+    problems = []
+    railway = sorted(name for name in environ if name.startswith("RAILWAY_"))
+    if railway:
+        problems.append("RAILWAY_* variables are set (" + ", ".join(railway) + "): this looks like Railway")
+    raw = (environ.get("DB_PATH") or "").strip().replace("\\", "/")
+    if raw == "/data" or raw.startswith("/data/"):
+        problems.append(f"DB_PATH points at {raw}, the production volume")
+    return problems
+
+
+DEMO_MODE = _env("DEMO_MODE", default="false").lower() in ("1", "true", "yes")
+if DEMO_MODE:
+    _problems = demo_problems(os.environ)
+    if _problems:
+        raise SystemExit("DEMO_MODE refuses to start: " + "; ".join(_problems) + ". Nothing was touched.")
+DEMO_PORT = int(_env("DEMO_PORT", default="8800"))
+DEMO_TODAY = _env("DEMO_TODAY")   # YYYY-MM-DD: pin the demo's "today" so screenshots never change
+
+
 def _resolve_db_path() -> str:
     explicit = _env("DB_PATH")
     if explicit:
@@ -50,25 +79,27 @@ def _resolve_db_path() -> str:
     return os.path.join("data", "expenses.db")
 
 
-BOT_TOKEN = _env("BOT_TOKEN")
+BOT_TOKEN = "" if DEMO_MODE else _env("BOT_TOKEN")   # a demo never even loads a real token
 # The channel gate is not configured here: the channels and the on/off switch live in
 # the database and are managed with admin commands (app/services/gate.py).
 
 
-DB_PATH = _resolve_db_path()
+DB_PATH = DEMO_DB if DEMO_MODE else _resolve_db_path()   # never DB_PATH in demo mode
 DB_PATH_SOURCE = (
-    "DB_PATH" if _env("DB_PATH")
+    "demo" if DEMO_MODE
+    else "DB_PATH" if _env("DB_PATH")
     else "RAILWAY_VOLUME_MOUNT_PATH" if _env("RAILWAY_VOLUME_MOUNT_PATH")
     else "default"
 )
 
-PUBLIC_URL = _env("PUBLIC_URL") or (
+PUBLIC_URL = "" if DEMO_MODE else _env("PUBLIC_URL") or (
     f"https://{_env('RAILWAY_PUBLIC_DOMAIN')}" if _env("RAILWAY_PUBLIC_DOMAIN") else ""
 )
-WEBHOOK_SECRET = _env("WEBHOOK_SECRET")
+WEBHOOK_SECRET = "" if DEMO_MODE else _env("WEBHOOK_SECRET")
 # There is no app-wide currency or timezone: every user picks their own on /start
 # (stored in user_prefs). Server jobs such as the daily backup run on UTC.
-ADMIN_CHAT_ID = int(_env("ADMIN_CHAT_ID")) if _env("ADMIN_CHAT_ID").lstrip("-").isdigit() else None
+ADMIN_CHAT_ID = (None if DEMO_MODE else
+                 int(_env("ADMIN_CHAT_ID")) if _env("ADMIN_CHAT_ID").lstrip("-").isdigit() else None)
 USE_POLLING = _env("USE_POLLING", default="false").lower() in ("1", "true", "yes")
 PORT = int(_env("PORT", default="8000"))
 
